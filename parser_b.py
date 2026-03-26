@@ -875,6 +875,73 @@ def _extract_year_from_text(text: str) -> Optional[int]:
     return None
 
 
+def extract_query_constraints(query: str) -> tuple[str, Optional[int]]:
+    """Extract normalized model name and requested year from user query."""
+    normalized = normalize_whitespace(query)
+    if not normalized:
+        return "", None
+
+    requested_year = _extract_year_from_text(normalized)
+    if requested_year is None:
+        return normalized, None
+
+    model_parts: list[str] = []
+    year_removed = False
+
+    for part in normalized.split():
+        digits_only = re.sub(r"[^\d]", "", part)
+        if not year_removed and digits_only == str(requested_year):
+            year_removed = True
+            continue
+        model_parts.append(part)
+
+    model_name = normalize_whitespace(" ".join(model_parts))
+    return model_name or normalized, requested_year
+
+
+def get_offer_year(offer: "LeasingOffer") -> Optional[int]:
+    """Get offer year using parsed data first, then title fallback."""
+    if offer.year is not None:
+        return offer.year
+    return _extract_year_from_text(offer.title)
+
+
+def filter_offers_by_requested_year(
+    offers: list["LeasingOffer"],
+    requested_year: Optional[int],
+) -> list["LeasingOffer"]:
+    """Keep only offers that match the requested year when it is specified."""
+    if requested_year is None or not offers:
+        return offers
+
+    exact_matches: list[LeasingOffer] = []
+    unknown_year: list[LeasingOffer] = []
+
+    for offer in offers:
+        offer_year = get_offer_year(offer)
+        if offer_year is None:
+            unknown_year.append(offer)
+        elif offer_year == requested_year:
+            exact_matches.append(offer)
+
+    if exact_matches:
+        removed_count = len(offers) - len(exact_matches)
+        if removed_count > 0:
+            logger.info(
+                f"Year filter {requested_year}: kept {len(exact_matches)} exact matches, removed {removed_count} non-matching offers"
+            )
+        return exact_matches
+
+    if unknown_year:
+        logger.warning(
+            f"Year filter {requested_year}: no exact matches found, keeping {len(unknown_year)} offers with unknown year"
+        )
+        return unknown_year
+
+    logger.warning(f"Year filter {requested_year}: no offers matched requested year")
+    return []
+
+
 def _extract_power(text: str) -> Optional[str]:
     """Extract engine power (hp/л.с.) from text."""
     match = re.search(r"(\d{2,4})\s*(л\.?с\.?|hp)", text, flags=re.IGNORECASE)
@@ -3365,14 +3432,24 @@ def search_and_analyze(
     analyzer: Optional[AIAnalyzer],
     num_results: int = 5,
     use_ai: bool = True,
+    item_name: Optional[str] = None,
 ) -> list[LeasingOffer]:
     """Main search and analysis pipeline with parallel processing."""
     logger.info("=" * 70)
     logger.info(f"Search query: {query}")
     logger.info("=" * 70)
 
-    model_name = extract_model_from_query(query)
-    mandatory_urls = generate_mandatory_urls(model_name)
+    if item_name:
+        model_name, requested_year = extract_query_constraints(item_name)
+    else:
+        model_name = extract_model_from_query(query)
+        requested_year = _extract_year_from_text(query)
+
+    mandatory_query_name = model_name
+    if model_name and requested_year is not None:
+        mandatory_query_name = f"{model_name} {requested_year}"
+
+    mandatory_urls = generate_mandatory_urls(mandatory_query_name or model_name)
     logger.info(f"Mandatory sources: {len(mandatory_urls)}")
 
     search_results = search_google(query, num_results * 2)
@@ -3435,6 +3512,7 @@ def search_and_analyze(
     # Apply filters in order: quality -> deduplication -> outliers
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
+    offers = filter_offers_by_requested_year(offers, requested_year)
     offers = filter_price_outliers(offers)
     
     logger.info(f"Total offers after processing: {len(offers)}")
@@ -3661,8 +3739,8 @@ def print_best_offers_comparison(comparisons: dict, original_name: str):
                 print(f"   • {uc}")
 
 
-def print_final_report(report: dict, client_price: Optional[int], analog_details: list[dict]):
-    """Print final market report with deep analysis."""
+def print_final_report(report: dict, client_price: Optional[int]):
+    """Print final market report."""
     print("\n" + "=" * 70)
     print("FINAL REPORT")
     print("=" * 70)
@@ -3693,16 +3771,6 @@ def print_final_report(report: dict, client_price: Optional[int], analog_details
             best_offer_obj = best_original
         print_best_offer_analysis(best_offer_obj, best_original_analysis, item_name)
     
-    # Print comparison with analogs
-    comparisons = report.get("best_offers_comparison", {})
-    if comparisons:
-        original_name = report.get("item", "Unknown")
-        print_best_offers_comparison(comparisons, original_name)
-
-    if analog_details:
-        print_analog_details(analog_details)
-
-
 def save_results_json(offers: list[LeasingOffer], item_name: str = "results", market_report: Optional[dict] = None):
     """Save results to JSON file."""
     safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in item_name)
@@ -3869,7 +3937,7 @@ def compare_best_offers_original_vs_analogs(
 # =============================
 # Main pipeline execution
 # =============================
-def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict]]:
+def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
     """Execute the main analysis pipeline."""
     item = params["item"]
     client_price = params["client_price"]
@@ -3880,16 +3948,16 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
     fetcher = SeleniumFetcher()
     cleaner = ContentCleaner()
     
-    # Initialize Sonar for analog search (PRIMARY method)
+    # Initialize Sonar for deep analysis of offers for the requested model.
     sonar_finder = get_sonar_finder()
     if sonar_finder:
         logger.info("=" * 70)
-        logger.info("[SONAR] Perplexity Sonar API initialized - will be used as PRIMARY method for analog search")
+        logger.info("[SONAR] Perplexity Sonar API initialized - will be used for deep offer analysis")
         logger.info("=" * 70)
     else:
         logger.warning("=" * 70)
         logger.warning("[SONAR] Perplexity API not available - PERPLEXITY_API_KEY not set or invalid format (should start with 'pplx-' or 'sk-')")
-        logger.warning("[SONAR] Will use fallback methods (GigaChat/Google) for analog search")
+        logger.warning("[SONAR] Best-offer analysis will use fallback logic")
         logger.warning("=" * 70)
     analyzer = None
     if use_ai and CONFIG.gigachat_auth_data:
@@ -3898,17 +3966,31 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
 
     try:
         query = f"{item} {CONFIG.default_search_suffix}"
-        offers = search_and_analyze(query, fetcher, analyzer, num_results=num_results, use_ai=use_ai)
+        offers = search_and_analyze(
+            query,
+            fetcher,
+            analyzer,
+            num_results=num_results,
+            use_ai=use_ai,
+            item_name=item,
+        )
         
         # Retry logic if empty
         if not offers:
             logger.warning("Direct search returned no results, trying simpler query...")
             query_simple = f"{item} {CONFIG.fallback_search_suffix}"
-            offers = search_and_analyze(query_simple, fetcher, analyzer, num_results=num_results, use_ai=use_ai)
+            offers = search_and_analyze(
+                query_simple,
+                fetcher,
+                analyzer,
+                num_results=num_results,
+                use_ai=use_ai,
+                item_name=item,
+            )
         
         if not offers:
             logger.error("Could not extract offers even after retry")
-            return [], {}, []
+            return [], {}
 
         # =============================
         # ENRICH WITH SPECS FROM SPECIALIZED SITES
@@ -3947,15 +4029,8 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
                 if enriched_count > 0:
                     logger.info(f"Enriched {enriched_count} offers with technical specifications")
 
-        # Collect analogs (Sonar primary, fallback to GigaChat/Google)
-        analogs, sonar_analog_details = collect_analogs(
-            item, offers, use_ai=use_ai, analyzer=analyzer, sonar_finder=sonar_finder
-        )
-        
         # Generate initial report
         report = analyze_market(item, offers, client_price, sonar_finder=sonar_finder)
-        report["analogs_suggested"] = analogs
-        report["sonar_used"] = bool(sonar_analog_details)  # Track if Sonar was used
 
         # Validate with AI
         if use_ai and analyzer and report["median_price"]:
@@ -3987,6 +4062,9 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
             )
             report["best_original_offer"] = asdict(best_original_offer) if best_original_offer else None
             report["best_original_analysis"] = best_original_analysis
+
+        report["sonar_used"] = bool(best_original_analysis.get("sonar_used"))
+        return offers, report
         
         # =============================
         # Analog deep dive (search listings via old scheme)
@@ -4198,13 +4276,13 @@ def main():
         logger.error(f"Invalid input: {e}")
         return
 
-    offers, report, analog_details = run_pipeline(params)
+    offers, report = run_pipeline(params)
     
     if not offers:
         return
 
     print_results(offers)
-    print_final_report(report, params["client_price"], analog_details)
+    print_final_report(report, params["client_price"])
 
     save_input = input("\nSave results to JSON? (y/n): ").strip().lower()
     if save_input == "y":
@@ -4230,7 +4308,7 @@ def run_analysis(
         num_results: Number of search results to process
     
     Returns:
-        Dictionary with analysis results
+        Dictionary with analysis results for the requested model only
     """
     params: UserInput = {
         "item": item,
@@ -4239,13 +4317,11 @@ def run_analysis(
         "num_results": num_results,
     }
     
-    offers, report, analog_details = run_pipeline(params)
+    offers, report = run_pipeline(params)
     
     return {
         "item": item,
         "offers_used": [asdict(o) for o in offers],
-        "analogs_suggested": report.get("analogs_suggested", []),
-        "analogs_details": analog_details,
         "market_report": report,
     }
 

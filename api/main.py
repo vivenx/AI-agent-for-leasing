@@ -139,16 +139,38 @@ class DescribeResponse(BaseModel):
     specs: dict = {}
     pros: list[str] = []
     cons: list[str] = []
-    analogs_mentioned: list[str] = []
 
     market_report: MarketReport = MarketReport()
-    analogs_details: list[AnalogDetail] = []
     sources: list[dict] = []
     
     # Deep analysis results
     best_original_offer: Optional[dict] = None
     best_original_analysis: Optional[BestOfferAnalysis] = None
-    best_offers_comparison: dict[str, BestOffersComparison] = {}
+
+
+def select_primary_offer(offers: list[dict], best_offer: Optional[dict]) -> dict:
+    """Pick the most informative offer for top-level item fields."""
+    candidates: list[dict] = []
+
+    if isinstance(best_offer, dict) and best_offer:
+        candidates.append(best_offer)
+    candidates.extend(offer for offer in offers if isinstance(offer, dict))
+
+    if not candidates:
+        return {}
+
+    def score(offer: dict) -> tuple[int, int, int, int, int]:
+        specs = offer.get("specs")
+        specs_count = len(specs) if isinstance(specs, dict) else 0
+        return (
+            specs_count,
+            int(bool(offer.get("price"))),
+            int(bool(offer.get("year"))),
+            int(bool(offer.get("condition"))),
+            int(bool(offer.get("location"))),
+        )
+
+    return max(candidates, key=score)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -200,8 +222,6 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
             analysis = {
                 "item": item_str,
                 "offers_used": [],
-                "analogs_suggested": [],
-                "analogs_details": [],
                 "market_report": {
                     "item": item_str,
                     "market_range": None,
@@ -238,7 +258,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
 
 
         # Первое предложение (для базовых полей)
-        first_offer = offers_used[0] if offers_used else {}
+        primary_offer = select_primary_offer(offers_used, market_report.get("best_original_offer"))
 
         # Преобразуем аналоги в формат, который ожидает фронт
         analogs_for_response = []
@@ -298,18 +318,18 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
         
         # Собираем ответ
         return DescribeResponse(
-            category=first_offer.get("category"),
-            vendor=first_offer.get("vendor"),
-            model=first_offer.get("model"),
+            category=primary_offer.get("category"),
+            vendor=primary_offer.get("vendor"),
+            model=primary_offer.get("model"),
             price=market_report.get("median_price"),
-            currency=first_offer.get("currency", "RUB"),
-            monthly_payment=first_offer.get("monthly_payment"),
-            year=first_offer.get("year"),
-            condition=first_offer.get("condition"),
-            location=first_offer.get("location"),
-            specs=first_offer.get("specs", {}),
-            pros=first_offer.get("pros", []),
-            cons=first_offer.get("cons", []),
+            currency=primary_offer.get("currency", "RUB"),
+            monthly_payment=primary_offer.get("monthly_payment"),
+            year=primary_offer.get("year"),
+            condition=primary_offer.get("condition"),
+            location=primary_offer.get("location"),
+            specs=primary_offer.get("specs", {}),
+            pros=primary_offer.get("pros", []),
+            cons=primary_offer.get("cons", []),
             analogs_mentioned=analysis.get("analogs_suggested", []),
             market_report=MarketReport(
                 item=market_report.get("item"),

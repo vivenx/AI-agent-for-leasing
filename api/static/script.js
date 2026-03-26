@@ -25,6 +25,8 @@ const error = ensureElementById("error");
 const placeholder = ensureElementById("placeholder");
 const loading = ensureElementById("loading");
 const resultContent = ensureElementById("resultContent");
+const analogSection = document.querySelector(".analogs-section");
+const comparisonSection = getById("bestComparisonSection");
 const prevBtn = document.querySelector(".slider-btn.prev") || document.createElement("button");
 const nextBtn = document.querySelector(".slider-btn.next") || document.createElement("button");
 ensureElementById("useAI", "input");
@@ -43,6 +45,15 @@ const REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 // ✅ ДОБАВЛЕНЫ: Переменные для управления запросом
 let abortController = null;
 let timeoutId = null;
+
+if (analogSection) {
+  analogSection.style.display = "none";
+}
+if (comparisonSection) {
+  comparisonSection.style.display = "none";
+}
+setTextById("step2", "Характеристики модели");
+setTextById("step4", "Проверка источников");
 
 // ===== ПЕРЕКЛЮЧАТЕЛЬ ИИ =====
 document.querySelectorAll(".ai-btn").forEach((btn) => {
@@ -220,6 +231,7 @@ form.addEventListener("submit", async (e) => {
     stopLoadingAnimation();
     loading.classList.remove("show");
     resultContent.classList.add("show");
+    return;
 
     if (analogsData.length > 0) {
       showAnalog(0);
@@ -367,6 +379,19 @@ function render(data, clientPrice) {
   if (data.category) comment += `<br>📂 <strong>Категория:</strong> ${data.category}`;
   if (data.year) comment += `<br>📅 <strong>Год:</strong> ${data.year}`;
   if (data.condition) comment += `<br>⚙️ <strong>Состояние:</strong> ${data.condition}`;
+
+  if (data.location) {
+    comment += `<br><strong>Расположение:</strong> ${data.location}`;
+  }
+
+  const specsEntries = Object.entries(data.specs || {}).filter(([, value]) => value);
+  if (specsEntries.length > 0) {
+    const specsHtml = specsEntries
+      .slice(0, 8)
+      .map(([key, value]) => `<div style="padding: 10px 12px; background: var(--glass); border-radius: 10px;"><strong>${key}:</strong> ${value}</div>`)
+      .join("");
+    comment += `<br><br><strong>Характеристики:</strong><div style="display: grid; gap: 8px; margin-top: 10px;">${specsHtml}</div>`;
+  }
 
   if (marketReport.explanation) {
     comment += `<br><br><div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; margin-top: 8px;"><strong>💡 Рыночная оценка:</strong><br>${marketReport.explanation}</div>`;
@@ -709,7 +734,7 @@ function renderAllOffers(sources) {
 
     html += `<div class="offer-item-details">`;
     if (offer.source) html += `<span class="offer-source">${offer.source}</span>`;
-    if (offer.pricestr) html += `<span class="offer-price">${offer.pricestr}</span>`;
+    if (offer.price_str) html += `<span class="offer-price">${offer.price_str}</span>`;
     if (offer.monthly_payment_str) html += `<span class="offer-payment">${offer.monthly_payment_str}</span>`;
     if (offer.year) html += `<span class="offer-year">${offer.year}</span>`;
     if (offer.condition) html += `<span class="offer-condition">${offer.condition}</span>`;
