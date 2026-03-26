@@ -1,14 +1,44 @@
-const form = document.getElementById("analyzeForm");
-const error = document.getElementById("error");
-const placeholder = document.getElementById("placeholder");
-const loading = document.getElementById("loading");
-const resultContent = document.getElementById("resultContent");
-const prevBtn = document.querySelector(".slider-btn.prev");
-const nextBtn = document.querySelector(".slider-btn.next");
+const getById = (id) => document.getElementById(id);
+const ensureElementById = (id, tagName = "div") => {
+  let element = getById(id);
+  if (!element) {
+    element = document.createElement(tagName);
+    element.id = id;
+    element.hidden = true;
+    document.body.appendChild(element);
+  }
+  return element;
+};
+const setTextById = (id, value) => {
+  const element = getById(id);
+  if (element) element.textContent = value;
+};
+const setHtmlById = (id, value) => {
+  const element = getById(id);
+  if (element) element.innerHTML = value;
+};
+const setDisabled = (element, value) => {
+  if (element) element.disabled = value;
+};
+const form = getById("analyzeForm");
+const error = ensureElementById("error");
+const placeholder = ensureElementById("placeholder");
+const loading = ensureElementById("loading");
+const resultContent = ensureElementById("resultContent");
+const prevBtn = document.querySelector(".slider-btn.prev") || document.createElement("button");
+const nextBtn = document.querySelector(".slider-btn.next") || document.createElement("button");
+ensureElementById("useAI", "input");
+ensureElementById("deviationValue");
+ensureElementById("commentSection");
+ensureElementById("analogCard");
+ensureElementById("analogCounter");
+ensureElementById("sourcesList", "ul");
+ensureElementById("allOffersSection");
 
 let currentAnalogIndex = 0;
 let analogsData = [];
 let loadingInterval = null;
+const REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 
 // ✅ ДОБАВЛЕНЫ: Переменные для управления запросом
 let abortController = null;
@@ -20,7 +50,10 @@ document.querySelectorAll(".ai-btn").forEach((btn) => {
     e.preventDefault();
     document.querySelectorAll(".ai-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    document.getElementById("useAI").value = btn.dataset.value;
+    const useAIInput = getById("useAI");
+    if (useAIInput) {
+      useAIInput.value = btn.dataset.value;
+    }
   });
 });
 
@@ -73,9 +106,16 @@ function stopLoadingAnimation() {
 
 // ===== ВАЛИДАЦИЯ ФОРМЫ =====
 function validateForm() {
-  const item = document.getElementById("item").value.trim();
-  const clientPrice = document.getElementById("clientPrice").value.trim();
-  const numResults = parseInt(document.getElementById("numResults").value, 10);
+  const itemInput = getById("item");
+  const clientPriceInput = getById("clientPrice");
+  const numResultsInput = getById("numResults");
+  if (!itemInput || !clientPriceInput || !numResultsInput || !error) {
+    return false;
+  }
+
+  const item = itemInput.value.trim();
+  const clientPrice = clientPriceInput.value.trim();
+  const numResults = parseInt(numResultsInput.value, 10);
 
   if (!item || item.length < 3) {
     error.textContent = "❌ Описание должно содержать минимум 3 символа";
@@ -108,25 +148,32 @@ function validateForm() {
 }
 
 // ===== ОТПРАВКА ФОРМЫ =====
+if (form) {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (!error || !placeholder || !loading || !resultContent) {
+    console.error("[ERROR] Required UI elements are missing");
+    return;
+  }
   error.classList.remove("show");
 
   if (!validateForm()) {
     return;
   }
 
-  form.querySelector("button").disabled = true;
+  const submitButton = form.querySelector("button[type='submit']") || form.querySelector("button");
+  setDisabled(submitButton, true);
   console.log("[DEBUG] Форма отправлена");
   placeholder.classList.add("hidden");
   resultContent.classList.remove("show");
   loading.classList.add("show");
   startLoadingAnimation();
 
-  const item = document.getElementById("item").value.trim();
-  const clientPrice = parseInt(document.getElementById("clientPrice").value, 10) || null;
-  const useAI = document.getElementById("useAI").value === "true";
-  const numResults = parseInt(document.getElementById("numResults").value, 10) || 5;
+  const item = (getById("item")?.value || "").trim();
+  const clientPrice = parseInt(getById("clientPrice")?.value, 10) || null;
+  const useAI = getById("useAI")?.value === "true";
+  const numResults = parseInt(getById("numResults")?.value, 10) || 5;
+  let requestTimedOut = false;
 
   try {
     // ✅ ИСПРАВЛЕНО: Создание новых controller и timeout для каждого запроса
@@ -134,10 +181,11 @@ form.addEventListener("submit", async (e) => {
 
     // Таймаут 5 минут (300000 мс) на случай долгого анализа
     timeoutId = setTimeout(() => {
+      requestTimedOut = true;
       abortController.abort();
       error.textContent = "⏱️ Время ожидания истекло. Попробуйте снова.";
       error.classList.add("show");
-    }, 300000);
+    }, REQUEST_TIMEOUT_MS);
 
     const resp = await fetch("/api/describe", {
       method: "POST",
@@ -147,6 +195,7 @@ form.addEventListener("submit", async (e) => {
     });
 
     clearTimeout(timeoutId);
+    timeoutId = null;
 
     if (!resp.ok) {
       // ✅ ИСПРАВЛЕНО: Показать ошибку сервера
@@ -168,10 +217,53 @@ form.addEventListener("submit", async (e) => {
     renderBestOriginal(data);
     renderBestComparison(data);
     renderAllOffers(data.sources || []);
+    stopLoadingAnimation();
+    loading.classList.remove("show");
+    resultContent.classList.add("show");
+
+    if (analogsData.length > 0) {
+      showAnalog(0);
+    } else {
+      setHtmlById("analogCard", "<p style='color: var(--muted)'>Аналоги не найдены</p>");
+      setDisabled(prevBtn, true);
+      setDisabled(nextBtn, true);
+      updateAnalogCounter();
+    }
+    return;
 
     // ✅ ИСПРАВЛЕНО: Остановка анимации загрузки
     stopLoadingAnimation();
     loading.classList.remove("show");
+    console.error("[ERROR] Анализ завершился с ошибкой:", err);
+    if (requestTimedOut) {
+      error.textContent = "⏱️ Клиентский таймаут истек до ответа сервера. Сервер мог завершить анализ позже.";
+      error.classList.add("show");
+      return;
+    }
+    if (err?.name === "AbortError") {
+      error.textContent = "❌ Запрос был отменен. Проверьте соединение.";
+      error.classList.add("show");
+      return;
+    }
+    error.textContent = `❌ Ошибка: ${err?.message || "Неизвестная ошибка"}`;
+    error.classList.add("show");
+    return;
+    if (false) {
+    console.error("[ERROR] Анализ завершился с ошибкой:", err);
+    if (requestTimedOut) {
+      error.textContent = "⏱️ Клиентский таймаут истек до ответа сервера. Сервер мог завершить анализ позже.";
+      error.classList.add("show");
+      return;
+    }
+    if (err?.name === "AbortError") {
+      error.textContent = "❌ Запрос был отменен. Проверьте соединение.";
+      error.classList.add("show");
+      return;
+    }
+    error.textContent = `❌ Ошибка: ${err?.message || "Неизвестная ошибка"}`;
+    error.classList.add("show");
+    return;
+    }
     resultContent.classList.add("show");
 
     if (analogsData.length > 0) {
@@ -185,23 +277,53 @@ form.addEventListener("submit", async (e) => {
   } catch (err) {
     stopLoadingAnimation();
     loading.classList.remove("show");
+    console.error("[ERROR] Анализ завершился с ошибкой:", err);
+
+    if (requestTimedOut) {
+      error.textContent = "⏱️ Клиентский таймаут истек до ответа сервера. Сервер мог завершить анализ позже.";
+      error.classList.add("show");
+      return;
+    }
+
+    if (err?.name === "AbortError") {
+      error.textContent = "❌ Запрос был отменен. Проверьте соединение.";
+      error.classList.add("show");
+      return;
+    }
+
+    error.textContent = `❌ Ошибка: ${err?.message || "Неизвестная ошибка"}`;
+    error.classList.add("show");
+    return;
+    stopLoadingAnimation();
+    loading.classList.remove("show");
 
     console.error("[ERROR] Ошибка при анализе:", err);
 
-    if (err.name === "AbortError") {
+    if (err.name === "AbortError" && requestTimedOut) {
       error.textContent = "❌ Запрос был отменен. Проверьте соединение.";
-    } else {
+    } else if (err.name === "AbortError") {
       error.textContent = `❌ Ошибка: ${err.message || "Неизвестная ошибка"}`;
     }
     error.classList.add("show");
   } finally {
-    form.querySelector("button").disabled = false;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    setDisabled(submitButton, false);
   }
 });
+}
 
 // ===== РЕНДЕР МЕТРИК =====
 function render(data, clientPrice) {
   console.log("[DEBUG] Рендеринг данных:", data);
+  const setText = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = value;
+    }
+  };
   const titleEl = document.getElementById("resultTitle");
   if (titleEl) {
     const itemName = data.vendor && data.model
@@ -221,21 +343,21 @@ function render(data, clientPrice) {
   };
 
   if (minPrice && maxPrice) {
-    document.getElementById("rangeValue").textContent = `${formatPrice(minPrice)} – ${formatPrice(maxPrice)}`;
+    setText("rangeValue", `${formatPrice(minPrice)} – ${formatPrice(maxPrice)}`);
   } else {
-    document.getElementById("rangeValue").textContent = "—";
+    setText("rangeValue", "—");
   }
 
-  document.getElementById("medianValue").textContent = formatPrice(medianPrice);
-  document.getElementById("clientPriceValue").textContent = formatPrice(clientPrice);
+  setText("medianValue", formatPrice(medianPrice));
+  setText("clientValue", formatPrice(clientPrice));
 
   if (clientPrice && medianPrice) {
     const deviation = Math.round(((clientPrice - medianPrice) / medianPrice) * 100);
     const deviationText = deviation > 0 ? `+${deviation}%` : `${deviation}%`;
     const color = Math.abs(deviation) <= 20 ? "#10b981" : "#f43f5e";
-    document.getElementById("deviationValue").innerHTML = `<span style="color: ${color}; font-weight: 700;">${deviationText}</span>`;
+    setHtmlById("deviationValue", `<span style="color: ${color}; font-weight: 700;">${deviationText}</span>`);
   } else {
-    document.getElementById("deviationValue").textContent = "—";
+    setTextById("deviationValue", "—");
   }
 
   let comment = "";
@@ -250,7 +372,7 @@ function render(data, clientPrice) {
     comment += `<br><br><div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; margin-top: 8px;"><strong>💡 Рыночная оценка:</strong><br>${marketReport.explanation}</div>`;
   }
 
-  document.getElementById("commentSection").innerHTML = comment || "Данные загружены";
+  setHtmlById("commentSection", comment || "Данные загружены");
 }
 
 // ===== ПОКАЗАТЬ АНАЛОГ =====
@@ -312,10 +434,10 @@ function showAnalog(index) {
     html += `</ul></div>`;
   }
 
-  document.getElementById("analogCard").innerHTML = html;
+  setHtmlById("analogCard", html);
   updateAnalogCounter();
-  prevBtn.disabled = currentAnalogIndex === 0;
-  nextBtn.disabled = currentAnalogIndex === analogsData.length - 1;
+  setDisabled(prevBtn, currentAnalogIndex === 0);
+  setDisabled(nextBtn, currentAnalogIndex === analogsData.length - 1);
 }
 
 function nextAnalog() {

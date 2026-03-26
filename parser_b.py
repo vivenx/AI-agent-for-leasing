@@ -19,7 +19,6 @@ import statistics
 import sys
 import time
 import uuid
-from pathlib import Path
 from abc import ABC, abstractmethod
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,9 +38,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from tqdm import tqdm
 
-# Load environment variables from .env file located in the same directory as the script
-env_path = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=env_path)
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # =============================
 # Logging configuration
@@ -100,17 +99,14 @@ class Config:
     
     # API Keys (loaded from environment)
     serper_api_key: Optional[str] = field(default_factory=lambda: os.getenv("SERPER_API_KEY"))
-    perplexity_api_key: Optional[str] = field(
-    default_factory=lambda: os.getenv("PERPLEXITY_API_KEY")
-    
-)
-        # Sonar (Perplexity) API settings
+    perplexity_api_key: Optional[str] = field(default_factory=lambda: os.getenv("PERPLEXITY_API_KEY"))
+
+    # Sonar (Perplexity) API settings
     sonar_base_url: Optional[str] = field(default_factory=lambda: os.getenv("PERPLEXITY_BASE_URL"))
     sonar_api_url: str = "https://api.perplexity.ai/chat/completions"
     sonar_model: str = field(default_factory=lambda: os.getenv("PERPLEXITY_MODEL", "sonar-reasoning-pro"))
 
     gigachat_auth_data: Optional[str] = field(default_factory=lambda: os.getenv("GIGACHAT_AUTH_DATA"))
-    perplexity_api_key: Optional[str] = field(default_factory=lambda: os.getenv("PERPLEXITY_API_KEY"))
     
     
     # HTTP settings
@@ -745,6 +741,19 @@ def ensure_list_str(value) -> list[str]:
     if isinstance(value, list):
         return [str(v).strip() for v in value if str(v).strip()]
     return [str(value).strip()]
+
+
+def describe_price_difference(price1: Optional[int], price2: Optional[int]) -> str:
+    """Build a short human-readable price difference summary."""
+    if not price1 or not price2:
+        return "Недостаточно данных по цене"
+    if price1 == price2:
+        return "Цена объявлений примерно одинаковая"
+
+    diff_pct = abs(price1 - price2) / max(min(price1, price2), 1) * 100
+    if price1 < price2:
+        return f"Оригинал дешевле примерно на {diff_pct:.1f}%"
+    return f"Аналог дешевле примерно на {diff_pct:.1f}%"
 
 
 def extract_price_candidate(text: str) -> Optional[int]:
@@ -1605,6 +1614,12 @@ class SonarAnalogFinder:
     """
     
     # Улучшенный промпт для поиска аналогов
+    JSON_ONLY_SYSTEM_PROMPT = (
+        "You are a JSON API. Return exactly one valid JSON object and nothing else. "
+        "Do not use markdown. Do not explain anything outside JSON. "
+        "If information is insufficient, still return the requested JSON shape with conservative values."
+    )
+
     ANALOG_PROMPT = """Используй данные из поисковых результатов для поиска РОВНО 3 лучших конкурентных аналога для: {item}
 
 Требования к аналогам:
@@ -1667,6 +1682,51 @@ class SonarAnalogFinder:
 "price_diff": "Аналог дешевле/дороже на X% или примерно равно",
 "verdict": "Четкая рекомендация что выбрать и почему (2-3 предложения)"}}"""
 
+    FIND_BEST_OFFER_PROMPT = """Проанализируй список объявлений и выбери лучшее по соотношению цена/качество для лизинга.
+
+Объявления:
+{offers_list}
+
+Критерии выбора:
+1. Цена и соответствие рынку
+2. Состояние и технические характеристики
+3. Полнота и достоверность информации
+4. Надежность источника объявления
+5. Ликвидность и практичность для рынка РФ
+
+Верни только JSON:
+{{"best_index": 0, "best_score": 8.5, "reason": "почему это объявление лучше", "ranking": [
+  {{"index": 0, "score": 8.5, "brief_reason": "краткая причина"}},
+  {{"index": 1, "score": 7.3, "brief_reason": "краткая причина"}}
+]}}"""
+
+    VALIDATE_MARKET_PRICES_PROMPT = """Оцени рыночные цены для {item_name}.
+
+Данные:
+- Минимальная цена: {min_price}
+- Максимальная цена: {max_price}
+- Медианная цена: {median_price}
+- Средняя цена: {mean_price}
+- Цена клиента: {client_price}
+- Количество объявлений: {offers_count}
+
+Проверь:
+1. Адекватность диапазона цен
+2. Наличие аномалий
+3. Насколько цена клиента соответствует рынку
+
+Верни только JSON:
+{{"is_valid": true, "explanation": "объяснение", "anomalies": ["аномалия 1"], "client_price_verdict": "fair"}}"""
+
+    ENRICH_OFFER_PROMPT = """Извлеки и структурируй данные объявления.
+
+Название: {title}
+Цена: {price}
+Описание: {description}
+
+Верни только JSON:
+{{"vendor": "бренд", "model": "модель", "year": 2024, "condition": "новый", "specs": {{"key": "value"}}, "pros": ["плюс"], "cons": ["минус"]}}"""
+
     def __init__(self):
         self.api_key = CONFIG.perplexity_api_key
         
@@ -1714,7 +1774,13 @@ class SonarAnalogFinder:
         # Accept keys starting with 'pplx-' (Perplexity) or 'sk-' (proxy services like artemox)
         return bool(self.api_key and (self.api_key.startswith("pplx-") or self.api_key.startswith("sk-")))
     
-    def _call_sonar(self, prompt: str, max_tokens: int = 400, retries: int = 2) -> Optional[dict]:
+    def _call_sonar(
+        self,
+        prompt: str,
+        max_tokens: int = 400,
+        retries: int = 2,
+        return_raw_on_parse_failure: bool = False
+    ) -> Optional[dict]:
         """
         Make a call to Sonar API with minimal tokens.
         Includes retry logic for 500 errors and timeouts.
@@ -1738,14 +1804,20 @@ class SonarAnalogFinder:
             # НЕ добавляем max_tokens и temperature, т.к. прокси может их не поддерживать
             payload = {
                 "model": self.model,  # Используем текущую модель (может быть изменена при ошибке)
-                "messages": [{"role": "user", "content": prompt}]
+                "messages": [
+                    {"role": "system", "content": self.JSON_ONLY_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
             }
             # НЕ добавляем дополнительные параметры для прокси - используем минимальный формат
         else:
             # Для прямого Perplexity API полный набор параметров
             payload = {
                 "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [
+                    {"role": "system", "content": self.JSON_ONLY_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
                 "max_tokens": max_tokens,
                 "temperature": 0.1,
                 "return_citations": False,
@@ -1834,6 +1906,8 @@ class SonarAnalogFinder:
                 parsed = safe_json_loads(content)
                 if not parsed:
                     logger.warning(f"[SONAR] Failed to parse JSON from content. Content preview: {content[:500]}")
+                    if return_raw_on_parse_failure:
+                        return {"_raw_content": content}
                 else:
                     logger.debug(f"[SONAR] Successfully parsed JSON. Keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'not a dict'}")
                 
@@ -1875,11 +1949,6 @@ class SonarAnalogFinder:
                 logger.warning(f"[SONAR] HTTP error: {e}")
                 return None
             except requests.RequestException as e:
-                if attempt < retries and ("500" in str(e) or "timeout" in str(e).lower()):
-                    wait_time = (attempt + 1) * 2
-                    logger.warning(f"[SONAR] Request error, retrying in {wait_time}s: {e}")
-                    time.sleep(wait_time)
-                    continue
                 # Обрабатываем ResponseError от HTTPAdapter (too many 500 errors)
                 error_str = str(e).lower()
                 is_retryable = (
@@ -1906,6 +1975,62 @@ class SonarAnalogFinder:
                 return None
         
         return None
+
+    def _build_fallback_comparison(
+        self,
+        original_name: str,
+        original_offer: dict,
+        analog_name: str,
+        analog_offer: dict,
+        raw_content: str = ""
+    ) -> dict:
+        """Convert a non-JSON Sonar answer into a usable structured comparison."""
+        orig_price = original_offer.get("price")
+        analog_price = analog_offer.get("price")
+        price_diff = describe_price_difference(orig_price, analog_price)
+
+        orig_pros: list[str] = []
+        orig_cons: list[str] = []
+        analog_pros: list[str] = []
+        analog_cons: list[str] = []
+        winner = "tie"
+
+        if orig_price and analog_price:
+            cheaper_is_original = orig_price < analog_price
+            diff_ratio = abs(orig_price - analog_price) / max(min(orig_price, analog_price), 1)
+            if diff_ratio >= 0.05:
+                winner = "original" if cheaper_is_original else "analog"
+                if cheaper_is_original:
+                    orig_pros.append("Ниже цена объявления")
+                    analog_cons.append("Выше цена объявления")
+                else:
+                    analog_pros.append("Ниже цена объявления")
+                    orig_cons.append("Выше цена объявления")
+
+        insufficiency_markers = (
+            "cannot complete",
+            "do not contain any information",
+            "would need search results",
+            "insufficient",
+            "not contain information",
+        )
+        if raw_content and any(marker in raw_content.lower() for marker in insufficiency_markers):
+            note = "Недостаточно подтвержденных данных в поисковой выдаче Sonar для полного сравнения."
+        else:
+            note = "Sonar вернул ответ вне JSON, поэтому использована безопасная локальная деградация."
+
+        return {
+            "winner": winner,
+            "orig_pros": orig_pros,
+            "orig_cons": orig_cons,
+            "analog_pros": analog_pros,
+            "analog_cons": analog_cons,
+            "price_diff": price_diff,
+            "verdict": (
+                f"{note} Сравнение построено по доступным полям объявлений "
+                f"{original_name} и {analog_name} без неподтвержденных допущений."
+            ),
+        }
     
     def find_analogs(self, item_name: str) -> list[SonarAnalogResult]:
         """
@@ -2015,7 +2140,25 @@ class SonarAnalogFinder:
         )
         
         # Увеличиваем retries для сравнений (важная операция)
-        result = self._call_sonar(prompt, max_tokens=600, retries=3)
+        result = self._call_sonar(
+            prompt,
+            max_tokens=600,
+            retries=3,
+            return_raw_on_parse_failure=True
+        )
+
+        if result and "_raw_content" in result:
+            logger.warning(
+                f"[SONAR] Comparison response for {original_name} vs {analog_name} was not JSON; "
+                "using structured fallback instead of failing"
+            )
+            result = self._build_fallback_comparison(
+                original_name=original_name,
+                original_offer=original_offer,
+                analog_name=analog_name,
+                analog_offer=analog_offer,
+                raw_content=str(result.get("_raw_content", "")),
+            )
         
         if not result:
             logger.warning(f"[SONAR] Comparison failed for {original_name} vs {analog_name}")
@@ -2046,60 +2189,6 @@ class SonarAnalogFinder:
             "analog_price": analog_price,
             "sonar_comparison": True
         }
-    
-    # Промпт для выбора лучшего объявления из списка
-    FIND_BEST_OFFER_PROMPT = """Проанализируй список объявлений и выбери ЛУЧШЕЕ по соотношению цена/качество:
-
-{offers_list}
-
-Оцени каждое объявление по критериям:
-1. Цена и соотношение цена/качество
-2. Технические характеристики и комплектация
-3. Состояние (новый/б/у)
-4. Надежность источника объявления
-5. Полнота информации
-
-Верни ТОЛЬКО валидный JSON без дополнительного текста:
-{{"best_index": 0, "best_score": 8.5, "reason": "краткое объяснение", "ranking": [
-  {{"index": 0, "score": 8.5, "brief_reason": "лучшая цена и комплектация"}},
-  {{"index": 1, "score": 7.0, "brief_reason": "хорошее состояние, но дороже"}}
-]}}"""
-    
-    # Промпт для валидации рыночных цен
-    VALIDATE_MARKET_PRICES_PROMPT = """Проанализируй рыночные цены для {item_name}:
-
-- Диапазон цен: {min_price} - {max_price} руб
-- Медианная цена: {median_price} руб
-- Средняя цена: {mean_price} руб
-- Цена клиента: {client_price} руб (если указана)
-- Количество объявлений: {offers_count}
-
-Оцени:
-1. Корректность диапазона цен (нет ли аномально высоких/низких цен)
-2. Обоснованность медианной цены
-3. Если указана цена клиента - насколько она соответствует рынку
-
-Верни ТОЛЬКО валидный JSON:
-{{"is_valid": true, "explanation": "детальное объяснение рыночной ситуации", "anomalies": ["если есть аномалии"], "client_price_verdict": "fair/overpriced/underpriced"}}"""
-    
-    # Промпт для обогащения данных объявления
-    ENRICH_OFFER_PROMPT = """Дополни информацию об объявлении:
-
-Название: {title}
-Цена: {price}
-Описание: {description}
-
-Извлеки и дополни:
-1. Производитель (vendor)
-2. Модель (model)
-3. Год выпуска (year)
-4. Состояние (condition: новый/б/у/восстановленный)
-5. Ключевые характеристики (specs)
-6. Плюсы (pros) - до 5 пунктов
-7. Минусы (cons) - до 3 пунктов
-
-Верни ТОЛЬКО валидный JSON:
-{{"vendor": "...", "model": "...", "year": 2024, "condition": "новый", "specs": {{"key": "value"}}, "pros": ["..."], "cons": ["..."]}}"""
     
     def find_best_offer(self, offers: list[dict]) -> Optional[dict]:
         """
@@ -2454,9 +2543,11 @@ class SeleniumFetcher:
         if not self.driver:
             return False
         try:
-            # Try a simple operation to check if driver is alive
-            self.driver.current_url
-            return True
+            service = getattr(self.driver, "service", None)
+            process = getattr(service, "process", None)
+            if process is not None and process.poll() is not None:
+                return False
+            return bool(getattr(self.driver, "session_id", None))
         except Exception:
             return False
     
@@ -2493,8 +2584,14 @@ class SeleniumFetcher:
     def close(self):
         """Close driver and release resources."""
         if self.driver:
+            service = getattr(self.driver, "service", None)
+            process = getattr(service, "process", None)
+            service_alive = bool(process is not None and process.poll() is None)
             try:
-                self.driver.quit()
+                if service_alive and getattr(self.driver, "session_id", None):
+                    self.driver.quit()
+                elif service and hasattr(service, "stop"):
+                    service.stop()
             except Exception as e:
                 logger.debug(f"Error closing driver: {e}")
             finally:
@@ -3933,7 +4030,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
                 best_analog_offers.append((analog, best_analog_offer))
                 
                 # Legacy analog details (for compatibility)
-                listings = fetch_listing_summaries(f"{analog} купить", top_n=3)
+                listings = fetch_listing_summaries(f"{analog} ??????", top_n=3)
                 price_list = [l["price_guess"] for l in listings if l.get("price_guess")]
                 avg_price_math = int(sum(price_list) / len(price_list)) if price_list else None
                 
@@ -3941,10 +4038,6 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
                 pros, cons, note = [], [], ""
                 price_hint = None
                 best_link = None
-                sonar_info = None
-                sonar_rate_limiter = RateLimiter(CONFIG.gigachat_rate_limit_calls, CONFIG.gigachat_rate_limit_period, min_delay=CONFIG.gigachat_min_delay)
-
-
 
                 if sonar_info:
                     # Use Sonar description as note
@@ -3952,21 +4045,10 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
                     # Parse price range from Sonar
                     price_range_str = sonar_info.get("price_range", "")
                     if price_range_str:
-                        note = f"{note} | Ценовой диапазон: {price_range_str}" if note else f"Ценовой диапазон: {price_range_str}"
+                        note = f"{note} | ??????? ????????: {price_range_str}" if note else f"??????? ????????: {price_range_str}"
                     # Use Sonar pros/cons if available
                     pros = ensure_list_str(sonar_info.get("pros", []))
                     cons = ensure_list_str(sonar_info.get("cons", []))
-                else:
-                    # Если Sonar info нет - оставляем пустые значения (нет fallback)
-                    logger.warning(f"[SONAR] No Sonar info for {analog} - pros/cons will be empty")
-
-                if sonar_info:
-                    # Use Sonar description as note
-                    note = sonar_info.get("description", "") or sonar_info.get("key_difference", "")
-                    # Parse price range from Sonar
-                    price_range_str = sonar_info.get("price_range", "")
-                    if price_range_str:
-                        note = f"{note} | Ценовой диапазон: {price_range_str}" if note else f"Ценовой диапазон: {price_range_str}"
                 elif use_ai and analyzer:
                     ai_review = analyzer.review_analog(analog, listings)
                     pros = ensure_list_str(ai_review.get("pros"))
@@ -3974,6 +4056,10 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict, list[dict
                     price_hint = ai_review.get("price_hint")
                     note = ai_review.get("note", "")
                     best_link = ai_review.get("best_link")
+                else:
+                    # ???? Sonar info ??? - ????????? ?????? ???????? (??? fallback)
+                    logger.warning(f"[SONAR] No Sonar info for {analog} - pros/cons will be empty")
+                
                 final_price = price_hint if price_hint else avg_price_math
                 if best_analog_offer and best_analog_offer.price:
                     final_price = best_analog_offer.price
@@ -4139,7 +4225,7 @@ def run_analysis(
     
     Args:
         item: Item to analyze (e.g., "BMW M5 2024")
-        client_price: Optional client expected price
+        client_price: Optional client's expected price
         use_ai: Whether to use AI analysis
         num_results: Number of search results to process
     

@@ -2,67 +2,24 @@
 
 Анализатор рыночной стоимости предметов лизинга с AI-поддержкой и веб-интерфейсом.
 
-## 📦 Установка
-
-### 1. Клонирование репозитория
-
-```bash
-git clone <repository-url>
-cd DevUp-Leasing
-```
-
-### 2. Установка зависимостей
-
-**Требуется Python 3.8+**
-
-```bash
-pip install -r requirements.txt
-```
-
-**Для Windows пользователей:**
-```powershell
-python -m pip install -r requirements.txt
-```
-
-### 3. Настройка переменных окружения
-
-Скопируйте файл `.env.example` в `.env` и заполните своими API ключами:
-
-**Linux/Mac:**
-```bash
-cp .env.example .env
-```
-
-**Windows:**
-```powershell
-copy .env.example .env
-```
-
-Затем откройте файл `.env` в текстовом редакторе и заполните ваши API ключи.
-
-### 4. Проверка настройки
-
-Вы можете проверить правильность настройки переменных окружения с помощью специальной утилиты:
-
-```bash
-python verify_env.py
-```
-
-Скрипт проверит наличие `.env` файла и валидность критических API ключей.
-
 ## 🚀 Быстрый старт
 
 ### Запуск веб-интерфейса
 
 **Вариант 1 (рекомендуется):**
 ```bash
-cd api
-python main.py
+python run_web.py
 ```
 
 **Вариант 2:**
 ```bash
 python parser_b.py --web
+```
+
+**Вариант 3 (из папки api):**
+```bash
+cd api
+python main.py
 ```
 
 Затем откройте в браузере: **http://localhost:8000**
@@ -102,10 +59,7 @@ python parser_b.py
 
 ## 📋 Требования
 
-- Python 3.8 или выше
-- Все зависимости из `requirements.txt`
-
-### Установка зависимостей
+Установите зависимости:
 
 ```bash
 pip install -r requirements.txt
@@ -113,30 +67,20 @@ pip install -r requirements.txt
 
 ### Переменные окружения
 
-**Важно:** После клонирования репозитория обязательно создайте файл `.env` на основе `.env.example`:
-
-```bash
-# Linux/Mac
-cp .env.example .env
-
-# Windows
-copy .env.example .env
-```
-
-Затем откройте `.env` и заполните своими API ключами. Минимально необходимый ключ:
+Создайте файл `.env` в корне проекта:
 
 ```env
-# Обязательно для работы поиска аналогов
+SERPER_API_KEY=your_serper_api_key
+GIGACHAT_AUTH_DATA=your_gigachat_auth_data
+
+# Вариант 1: Прямой Perplexity API
 PERPLEXITY_API_KEY=pplx-your_perplexity_api_key
 
-# Опционально (для базового поиска)
-SERPER_API_KEY=your_serper_api_key
-
-# Опционально (для AI анализа)
-GIGACHAT_AUTH_DATA=your_gigachat_auth_data
+# Вариант 2: Прокси через artemox.com (рекомендуется)
+PERPLEXITY_API_KEY=sk-your_proxy_api_key
+PERPLEXITY_BASE_URL=https://api.artemox.com/v1
+PERPLEXITY_MODEL=sonar
 ```
-
-**Подробные инструкции по получению ключей см. ниже.**
 
 #### 🔑 Как получить и настроить Perplexity API ключ:
 
@@ -220,13 +164,10 @@ result = run_analysis(
 ├── parser_b.py          # Основной модуль анализа
 ├── api/
 │   ├── main.py          # FastAPI сервер
-│   ├── templates/       # HTML шаблоны
+│   ├── templates/      # HTML шаблоны
 │   └── static/          # CSS, JS
-├── requirements.txt     # Зависимости Python
-├── .env.example         # Шаблон переменных окружения
-├── .env                 # Ваши API ключи (создайте на основе .env.example)
-├── .gitignore           # Игнорируемые файлы Git
-└── README.md            # Документация
+├── requirements.txt     # Зависимости
+└── README.md           # Документация
 ```
 
 ## 🔧 Настройки
@@ -267,52 +208,9 @@ result = run_analysis(
 3. Сравнивается с лучшим оригиналом
 4. Выдаются рекомендации
 
-## 🔧 Решение проблем
-
-### Приложение не запускается
-
-1. **Проверьте версию Python:**
-   ```bash
-   python --version  # Должно быть 3.8 или выше
-   ```
-
-2. **Убедитесь, что все зависимости установлены:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Проверьте наличие файла `.env`:**
-   - Убедитесь, что файл `.env` существует в корне проекта
-   - Скопируйте `.env.example` в `.env`, если его нет
-   - Заполните хотя бы `PERPLEXITY_API_KEY` для базовой работы
-
-4. **Проверьте пути:**
-   - Запускайте из корня проекта: `cd DevUp-Leasing`
-   - Или из папки `api`: `cd api && python main.py`
-
-### Ошибки импорта модулей
-
-Если возникают ошибки типа `ModuleNotFoundError`:
-- Убедитесь, что вы находитесь в правильной директории
-- Проверьте, что все зависимости установлены: `pip install -r requirements.txt`
-
-### API ключи не работают
-
-- Проверьте правильность ключей в файле `.env`
-- Убедитесь, что ключи не содержат лишних пробелов или кавычек
-- Для Perplexity: ключ должен начинаться с `pplx-` (прямой API) или `sk-` (прокси)
-
-### Проблемы на Windows
-
-- Используйте `python -m pip` вместо просто `pip`
-- Используйте `copy` вместо `cp` для копирования файлов
-- Убедитесь, что используете PowerShell или CMD с поддержкой UTF-8
-
 ## 📞 Поддержка
 
 При возникновении проблем проверьте:
-- ✅ Установлены ли все зависимости (`pip install -r requirements.txt`)
-- ✅ Создан ли файл `.env` на основе `.env.example`
-- ✅ Заполнены ли API ключи в `.env`
-- ✅ Доступен ли интернет для API запросов
-- ✅ Правильная ли версия Python (3.8+)
+- Установлены ли все зависимости
+- Настроены ли переменные окружения
+- Доступен ли интернет для API запросов
