@@ -6,20 +6,9 @@
 
 ### Запуск веб-интерфейса
 
-**Вариант 1 (рекомендуется):**
-```bash
-python run_web.py
 ```
-
-**Вариант 2:**
-```bash
-python parser_b.py --web
-```
-
-**Вариант 3 (из папки api):**
-```bash
 cd api
-python main.py
+uvicorn main:app --reload
 ```
 
 Затем откройте в браузере: **http://localhost:8000**
