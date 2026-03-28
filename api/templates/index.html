@@ -2,50 +2,65 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Анализатор имущества | Sonar AI</title>
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=5" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/style.css?v=10" />
 </head>
 <body>
 <div class="container">
-    <!-- Левая панель: ввод -->
     <div class="left-panel">
-        <h1>🎯 Анализ имущества</h1>
-        <p class="subtitle">Рыночная оценка и интеллектуальный поиск аналогов с помощью AI</p>
+        <h1>Анализ имущества</h1>
+        <p class="subtitle">Рыночная проверка по модели или анализ документа с извлечением цены и характеристик.</p>
 
+        <div class="mode-toggle" id="modeToggle">
+            <button type="button" class="mode-btn active" data-mode="manual">По модели</button>
+            <button type="button" class="mode-btn" data-mode="document">По документу</button>
+        </div>
 
         <form id="analyzeForm">
-            <div class="form-group">
-                <label for="item">Предмет лизинга</label>
-                <input
-                    type="text"
-                    id="item"
-                    placeholder="Например: BMW X5 2024, iPhone 16 Pro Max"
-                    required
-                />
+            <div id="manualFields" class="mode-fields">
+                <div class="form-group">
+                    <label for="item">Предмет лизинга</label>
+                    <input
+                        type="text"
+                        id="item"
+                        placeholder="Например: BMW X5 2024, iPhone 16 Pro Max"
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label for="clientPrice">Цена клиента (₽)</label>
+                    <input
+                        type="number"
+                        id="clientPrice"
+                        placeholder="5000000"
+                    />
+                </div>
             </div>
 
-            <div class="form-group">
-                <label for="clientPrice">Цена клиента (₽)</label>
-                <input
-                    type="number"
-                    id="clientPrice"
-                    placeholder="5000000"
-                />
+            <div id="documentFields" class="mode-fields hidden">
+                <div class="form-group">
+                    <label for="documentFile">Документ</label>
+                    <label for="documentFile" class="file-picker" id="filePicker">
+                        <input type="file" id="documentFile" accept=".txt,.docx,.pdf" hidden />
+                        <span class="file-picker-title">Загрузить документ</span>
+                        <span class="file-picker-note" id="documentFileLabel">TXT, DOCX, PDF</span>
+                    </label>
+                </div>
             </div>
 
             <div class="form-group">
                 <label>Использовать ИИ для анализа</label>
                 <div class="ai-toggle">
                     <button type="button" class="ai-btn active" data-value="true">
-                        ✅ С ИИ
+                        С ИИ
                     </button>
                     <button type="button" class="ai-btn" data-value="false">
-                        📊 Только данные
+                        Только данные
                     </button>
                 </div>
                 <input type="hidden" id="useAI" value="true" />
@@ -62,95 +77,85 @@
                 />
             </div>
 
-            <button type="submit" class="submit-btn">🚀 Начать анализ</button>
+            <button type="submit" class="submit-btn" id="submitBtn">Начать анализ</button>
             <div id="error" class="error"></div>
         </form>
 
         <div id="placeholder" class="placeholder">
-            📋 Введите название товара и нажмите «Начать анализ»
+            Выберите режим анализа и заполните форму.
         </div>
-        
+
         <div id="loading" class="loading">
             <div class="loading-spinner"></div>
-            <div class="loading-text">Анализируем рынок...</div>
-            <div class="loading-steps">
-                <div class="loading-step" id="step1">🔍 Поиск объявлений</div>
-                <div class="loading-step" id="step2">🤖 Sonar ищет аналоги</div>
-                <div class="loading-step" id="step3">📊 Анализ цен</div>
-                <div class="loading-step" id="step4">⚖️ Сравнение предложений</div>
-            </div>
+            <div class="loading-text" id="loadingText">Анализируем данные...</div>
         </div>
     </div>
 
-    <!-- Правая панель: результат -->
     <div class="right-panel">
         <div id="resultContent" class="result-content">
-            <h2 id="resultTitle">📊 Результат анализа</h2>
+            <h2 id="resultTitle">Результат анализа</h2>
 
             <div class="metrics-grid">
                 <div class="metric">
-                    <div class="metric-label">📈 Диапазон рынка</div>
-                    <div class="metric-value" id="rangeValue">—</div>
+                    <div class="metric-label" id="priceLabel">Цена</div>
+                    <div class="metric-value" id="priceValue">—</div>
                 </div>
                 <div class="metric">
-                    <div class="metric-label">📊 Медиана</div>
+                    <div class="metric-label">Медиана рынка</div>
                     <div class="metric-value" id="medianValue">—</div>
                 </div>
                 <div class="metric">
-                    <div class="metric-label">💰 Цена клиента</div>
-                    <div class="metric-value" id="clientValue">—</div>
+                    <div class="metric-label">Диапазон рынка</div>
+                    <div class="metric-value" id="rangeValue">—</div>
                 </div>
                 <div class="metric">
-                    <div class="metric-label">📐 Отклонение</div>
+                    <div class="metric-label">Отклонение</div>
                     <div class="metric-value" id="deviationValue">—</div>
                 </div>
             </div>
 
             <div id="commentSection" class="comment-section">
-                📂 Заполните форму слева, чтобы увидеть анализ.
-            </div>
-
-            <!-- Best Original Offer Section -->
-            <div id="bestOriginalSection" class="best-offer-section hidden">
-                <h3>🏆 Лучшее объявление</h3>
-                <div id="bestOriginalCard" class="best-offer-card"></div>
-            </div>
-
-            <!-- Best Offers Comparison Section -->
-            <div id="bestComparisonSection" class="comparison-section hidden">
-                <h3>⚖️ Сравнение с аналогами</h3>
-                <div id="bestComparisonContent" class="comparison-content"></div>
-            </div>
-
-            <div class="analogs-section">
-                <h3>🔄 Аналоги</h3>
-                <div id="analogCard" class="analog-card">
-                    <p style="color: var(--muted);">Аналоги появятся после анализа</p>
-                </div>
-                <div class="slider-controls">
-                    <button class="slider-btn prev">← Назад</button>
-                    <span id="analogCounter">0/0</span>
-                    <button class="slider-btn next">Далее →</button>
-                </div>
+                Заполните форму слева, чтобы увидеть анализ.
             </div>
 
             <div class="sources-section">
-                <h3>📚 Источники</h3>
-                <button id="toggleAllOffers" class="toggle-offers-btn" style="display: none;">
-                    📋 Показать все объявления
-                </button>
-                <div id="allOffersSection" class="all-offers-section hidden">
-                    <h4 id="allOffersTitle">Все найденные объявления</h4>
-                    <div id="allOffersList" class="all-offers-list"></div>
+                <div class="section-header">
+                    <h3>Источники</h3>
                 </div>
-                <ul id="sourcesList" class="sources-list">
-                    <li style="color: var(--muted);">Источники появятся после анализа</li>
-                </ul>
+                <div id="sourcesList" class="sources-list">
+                    <div class="empty-note">Источники появятся после анализа</div>
+                </div>
+            </div>
+
+            <div id="specsSection" class="details-section hidden">
+                <div class="section-header">
+                    <h3>Характеристики</h3>
+                </div>
+                <div id="detailsGrid" class="details-grid">
+                    <div class="empty-note">Характеристики появятся после анализа</div>
+                </div>
+            </div>
+
+            <div id="documentSection" class="details-section hidden">
+                <div class="section-header">
+                    <h3>Документ</h3>
+                </div>
+                <div id="documentInfoGrid" class="details-grid">
+                    <div class="empty-note">Информация о документе появится после анализа</div>
+                </div>
+                <pre id="textPreview" class="text-preview">—</pre>
+            </div>
+
+            <div id="warningsSection" class="details-section hidden">
+                <div class="section-header">
+                    <h3>Предупреждения</h3>
+                </div>
+                <ul id="warningsList" class="warnings-list"></ul>
             </div>
         </div>
     </div>
 </div>
 
-<script src="/static/script.js?v=7"></script>
+<script src="/static/script.js?v=13"></script>
 </body>
 </html>

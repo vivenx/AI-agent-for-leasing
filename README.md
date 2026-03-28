@@ -146,6 +146,36 @@ result = run_analysis(
 )
 ```
 
+### Анализ документа
+
+Добавлен отдельный backend-модуль `document_analysis.py` и API-эндпоинт `POST /api/analyze-document`.
+
+CLI-запуск:
+
+```bash
+python document_analysis.py contract.docx
+python document_analysis.py contract.pdf --json
+python document_analysis.py contract.txt --output result.json
+```
+
+Что делает эндпоинт:
+- принимает файл `txt`, `docx` или `pdf`
+- извлекает текст документа
+- выделяет предмет лизинга, цену и ключевые характеристики
+- запускает рыночную проверку по извлеченному предмету
+- считает отклонение и возвращает вывод, подтверждается ли цена рынком
+
+Пример `curl`:
+
+```bash
+curl -X POST "http://localhost:8000/api/analyze-document" ^
+  -F "file=@contract.docx" ^
+  -F "useAI=true" ^
+  -F "numResults=5"
+```
+
+Для PDF нужна зависимость `pypdf` из `requirements.txt`.
+
 ## 📁 Структура проекта
 
 ```

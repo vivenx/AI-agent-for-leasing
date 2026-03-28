@@ -10,7 +10,7 @@ parent_dir = current_dir.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from document_analysis import analyze_document
 from parser_b import run_analysis
 
 # Настройка логирования
@@ -146,6 +147,30 @@ class DescribeResponse(BaseModel):
     # Deep analysis results
     best_original_offer: Optional[dict] = None
     best_original_analysis: Optional[BestOfferAnalysis] = None
+
+
+class DocumentPriceCheck(BaseModel):
+    declared_price: Optional[int] = None
+    market_median_price: Optional[float] = None
+    market_range: Optional[list[int]] = None
+    deviation_amount: Optional[int] = None
+    deviation_percent: Optional[float] = None
+    confirmed: Optional[bool] = None
+    verdict: Optional[str] = None
+
+
+class DocumentAnalyzeResponse(BaseModel):
+    file_name: str
+    document_type: str
+    item_name: Optional[str] = None
+    declared_price: Optional[int] = None
+    currency: str = "RUB"
+    key_characteristics: dict = {}
+    price_check: DocumentPriceCheck = DocumentPriceCheck()
+    market_report: MarketReport = MarketReport()
+    sources: list[dict] = []
+    warnings: list[str] = []
+    text_preview: Optional[str] = None
 
 
 def select_primary_offer(offers: list[dict], best_offer: Optional[dict]) -> dict:
@@ -374,6 +399,61 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
 
 
 # Проверка обязательных переменных окружения при старте
+@app.post("/api/analyze-document", response_model=DocumentAnalyzeResponse)
+@limiter.limit("5/minute")
+async def analyze_document_endpoint(
+    request: Request,
+    file: UploadFile = File(...),
+    useAI: bool = Form(True),
+    numResults: int = Form(5),
+) -> DocumentAnalyzeResponse:
+    """Analyze uploaded document and compare declared price with market data."""
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не указано имя файла.")
+
+    if numResults < 1 or numResults > 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Количество результатов должно быть от 1 до 10.",
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Файл пустой.")
+
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Размер файла превышает 15 МБ.",
+        )
+
+    logger.info(
+        "Запрос анализа документа: file=%s, size=%s bytes, use_ai=%s, num_results=%s",
+        file.filename,
+        len(content),
+        useAI,
+        numResults,
+    )
+
+    try:
+        result = analyze_document(
+            file_name=file.filename,
+            content=content,
+            use_ai=useAI,
+            num_results=numResults,
+        )
+        return DocumentAnalyzeResponse(**result)
+    except ValueError as e:
+        logger.warning("Ошибка анализа документа %s: %s", file.filename, e)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error("Ошибка в /api/analyze-document: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Внутренняя ошибка при анализе документа.",
+        )
+
+
 def check_environment():
     """Проверяет наличие критичных переменных окружения."""
     warnings = []
