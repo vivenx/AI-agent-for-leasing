@@ -97,16 +97,16 @@
 
             <div class="metrics-grid">
                 <div class="metric">
-                    <div class="metric-label">Предмет</div>
-                    <div class="metric-value" id="subjectValue">—</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">Цена</div>
+                    <div class="metric-label" id="priceLabel">Цена</div>
                     <div class="metric-value" id="priceValue">—</div>
                 </div>
                 <div class="metric">
                     <div class="metric-label">Медиана рынка</div>
                     <div class="metric-value" id="medianValue">—</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Диапазон рынка</div>
+                    <div class="metric-value" id="rangeValue">—</div>
                 </div>
                 <div class="metric">
                     <div class="metric-label">Отклонение</div>
@@ -118,7 +118,16 @@
                 Заполните форму слева, чтобы увидеть анализ.
             </div>
 
-            <div class="details-section">
+            <div class="sources-section">
+                <div class="section-header">
+                    <h3>Источники</h3>
+                </div>
+                <div id="sourcesList" class="sources-list">
+                    <div class="empty-note">Источники появятся после анализа</div>
+                </div>
+            </div>
+
+            <div id="specsSection" class="details-section hidden">
                 <div class="section-header">
                     <h3>Характеристики</h3>
                 </div>
@@ -143,19 +152,10 @@
                 </div>
                 <ul id="warningsList" class="warnings-list"></ul>
             </div>
-
-            <div class="sources-section">
-                <div class="section-header">
-                    <h3>Источники</h3>
-                </div>
-                <div id="sourcesList" class="sources-list">
-                    <div class="empty-note">Источники появятся после анализа</div>
-                </div>
-            </div>
         </div>
     </div>
 </div>
 
-<script src="/static/script.js?v=10"></script>
+<script src="/static/script.js?v=13"></script>
 </body>
 </html>

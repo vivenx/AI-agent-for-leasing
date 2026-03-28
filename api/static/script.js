@@ -21,11 +21,13 @@ const elements = {
   loadingText: byId("loadingText"),
   resultContent: byId("resultContent"),
   resultTitle: byId("resultTitle"),
-  subjectValue: byId("subjectValue"),
+  priceLabel: byId("priceLabel"),
   priceValue: byId("priceValue"),
   medianValue: byId("medianValue"),
+  rangeValue: byId("rangeValue"),
   deviationValue: byId("deviationValue"),
   commentSection: byId("commentSection"),
+  specsSection: byId("specsSection"),
   detailsGrid: byId("detailsGrid"),
   documentSection: byId("documentSection"),
   documentInfoGrid: byId("documentInfoGrid"),
@@ -135,7 +137,12 @@ function setMode(mode) {
 
   elements.manualFields?.classList.toggle("hidden", !isManual);
   elements.documentFields?.classList.toggle("hidden", isManual);
+  elements.specsSection?.classList.toggle("hidden", isManual);
   elements.documentSection?.classList.toggle("hidden", isManual);
+  elements.warningsSection?.classList.add("hidden");
+  if (elements.priceLabel) {
+    elements.priceLabel.textContent = isManual ? "Цена клиента" : "Цена по документу";
+  }
   elements.submitBtn.textContent = isManual ? "Начать анализ" : "Загрузить и проанализировать";
   elements.loadingText.textContent = isManual
     ? "Анализируем рынок..."
@@ -257,32 +264,33 @@ function stopLoading() {
 function renderManualResult(data, fallbackClientPrice) {
   const marketReport = data.market_report || {};
   const subject = [data.vendor, data.model, data.year].filter(Boolean).join(" ") || marketReport.item || "Предмет не определен";
-  const details = {
-    Категория: data.category,
-    Год: data.year,
-    Состояние: data.condition,
-    Локация: data.location,
-    Валюта: data.currency,
-    ...normalizeObject(data.specs || {}),
-  };
 
   elements.resultTitle.textContent = subject;
-  elements.subjectValue.textContent = subject;
+  if (elements.priceLabel) {
+    elements.priceLabel.textContent = "Цена клиента";
+  }
   elements.priceValue.textContent = formatPrice(marketReport.client_price ?? fallbackClientPrice, data.currency);
   elements.medianValue.textContent = formatPrice(marketReport.median_price, data.currency);
-  elements.deviationValue.textContent = formatDeviation(
+  elements.rangeValue.textContent = formatRange(marketReport.market_range, data.currency);
+  elements.deviationValue.textContent = formatDeviationFromPrices(
     marketReport.client_price ?? fallbackClientPrice,
     marketReport.median_price,
     data.currency
   );
+  const commentText = buildMarketCommentText({
+    explanation: marketReport.explanation,
+    clientPrice: marketReport.client_price ?? fallbackClientPrice,
+    medianPrice: marketReport.median_price,
+    currency: data.currency,
+  });
   elements.commentSection.innerHTML = `
     <strong>${escapeHtml(marketReport.client_price_ok === true ? "Цена в рынке" : marketReport.client_price_ok === false ? "Цена вне рынка" : "Недостаточно данных")}</strong>
-    <div style="margin-top: 8px;">${escapeHtml(marketReport.explanation || "Комментарий рынка отсутствует.")}</div>
+    <div style="margin-top: 8px;">${escapeHtml(commentText || "Комментарий рынка отсутствует.")}</div>
   `;
 
-  renderDetails(elements.detailsGrid, details, "Характеристики появятся после анализа");
   renderSources(data.sources || []);
 
+  elements.specsSection.classList.add("hidden");
   elements.documentSection.classList.add("hidden");
   elements.warningsSection.classList.add("hidden");
   elements.resultContent.classList.add("show");
@@ -294,13 +302,27 @@ function renderDocumentResult(data) {
   const subject = data.item_name || marketReport.item || "Предмет не определен";
 
   elements.resultTitle.textContent = subject;
-  elements.subjectValue.textContent = subject;
+  if (elements.priceLabel) {
+    elements.priceLabel.textContent = "Цена по документу";
+  }
   elements.priceValue.textContent = formatPrice(data.declared_price, data.currency);
   elements.medianValue.textContent = formatPrice(priceCheck.market_median_price, data.currency);
-  elements.deviationValue.textContent = formatDeviation(priceCheck.deviation_amount, priceCheck.market_median_price, data.currency, priceCheck.deviation_percent);
+  elements.rangeValue.textContent = formatRange(priceCheck.market_range, data.currency);
+  elements.deviationValue.textContent = formatDeviationAmount(
+    priceCheck.deviation_amount,
+    priceCheck.deviation_percent,
+    data.currency
+  );
+  const commentText = buildMarketCommentText({
+    explanation: marketReport.explanation,
+    clientPrice: data.declared_price,
+    medianPrice: priceCheck.market_median_price,
+    currency: data.currency,
+    includeDeviation: false,
+  });
   elements.commentSection.innerHTML = `
     <strong>${escapeHtml(priceCheck.verdict || "Нет итогового вывода")}</strong>
-    <div style="margin-top: 8px;">${escapeHtml(marketReport.explanation || "Комментарий рынка отсутствует.")}</div>
+    <div style="margin-top: 8px;">${escapeHtml(commentText || "Комментарий рынка отсутствует.")}</div>
   `;
 
   renderDetails(elements.detailsGrid, data.key_characteristics || {}, "Характеристики не найдены");
@@ -328,6 +350,7 @@ function renderDocumentResult(data) {
 
   renderSources(data.sources || []);
 
+  elements.specsSection.classList.remove("hidden");
   elements.documentSection.classList.remove("hidden");
   elements.resultContent.classList.add("show");
 }
@@ -402,21 +425,91 @@ function formatRange(range, currency = "RUB") {
   return `${formatPrice(range[0], currency)} — ${formatPrice(range[1], currency)}`;
 }
 
-function formatDeviation(clientPrice, medianPrice, currency = "RUB", percentOverride = null) {
+function buildMarketCommentText({
+  explanation,
+  clientPrice,
+  medianPrice,
+  currency = "RUB",
+  includeDeviation = true,
+}) {
+  const parts = [];
+  const deviation = formatDeviationFromPrices(clientPrice, medianPrice, currency);
+
+  if (includeDeviation && deviation !== "—") {
+    parts.push(`Отклонение от медианы: ${deviation}.`);
+  }
+
+  const cleanedExplanation = cleanMarketExplanation(explanation);
+  if (cleanedExplanation) {
+    parts.push(cleanedExplanation);
+  }
+
+  return parts.join(" ").trim();
+}
+
+function cleanMarketExplanation(explanation) {
+  const localized = localizeMarketExplanation(explanation);
+  if (!localized) return "";
+
+  const sentences = splitSentences(localized)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .filter((sentence) => !isRedundantMarketSentence(sentence));
+
+  return sentences.join(" ");
+}
+
+function localizeMarketExplanation(explanation) {
+  if (!explanation) return "";
+
+  return String(explanation)
+    .replace(/\bnot confirmed\b/gi, "не подтверждена")
+    .replace(/\bconfirmed\b/gi, "подтверждена")
+    .replace(/\bMarket range\b/gi, "Диапазон рынка")
+    .replace(/\bClient price\b/gi, "Цена клиента")
+    .replace(/\bmedian\b/gi, "медиана")
+    .replace(/\bNo prices collected\b/gi, "Не удалось собрать данные по ценам")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitSentences(text) {
+  return text.match(/[^.!?]+[.!?]?/g) || [];
+}
+
+function isRedundantMarketSentence(sentence) {
+  return /^(Диапазон рынка|Цена клиента)\b/i.test(sentence.trim());
+}
+
+function formatDeviationFromPrices(clientPrice, medianPrice, currency = "RUB") {
   const client = Number(clientPrice);
   const median = Number(medianPrice);
-  const percent = Number(percentOverride);
-
-  if (Number.isFinite(percent) && Number.isFinite(client)) {
-    const amount = `${client > 0 ? "+" : ""}${formatPrice(client, currency)}`;
-    return `${amount} · ${percent > 0 ? "+" : ""}${percent.toFixed(1)}%`;
-  }
 
   if (!Number.isFinite(client) || !Number.isFinite(median) || median === 0) return "—";
 
   const diff = client - median;
   const diffPercent = (diff / median) * 100;
-  return `${diff > 0 ? "+" : ""}${formatPrice(diff, currency)} · ${diffPercent > 0 ? "+" : ""}${diffPercent.toFixed(1)}%`;
+  return formatDeviationAmount(diff, diffPercent, currency);
+}
+
+function formatDeviationAmount(amountValue, percentValue, currency = "RUB") {
+  const amount = normalizeNearZero(Number(amountValue));
+  const percent = normalizeNearZero(Number(percentValue));
+
+  if (!Number.isFinite(amount) || !Number.isFinite(percent)) return "—";
+
+  return `${amount > 0 ? "+" : ""}${formatPrice(amount, currency)} · ${formatSignedPercent(percent)}`;
+}
+
+function formatSignedPercent(value) {
+  const numeric = normalizeNearZero(Number(value));
+  if (!Number.isFinite(numeric)) return "—";
+  return `${numeric > 0 ? "+" : ""}${numeric.toFixed(2)}%`;
+}
+
+function normalizeNearZero(value, epsilon = 0.000001) {
+  if (!Number.isFinite(value)) return value;
+  return Math.abs(value) < epsilon ? 0 : value;
 }
 
 function formatFileSize(bytes) {
