@@ -6,16 +6,16 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Core
+# Ядро
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Clients (AI)
+# Клиенты (AI)
 from leasing_analyzer.clients.gigachat import GigaChatClient
 
-# Document extraction
+# Извлечение данных из документов
 from leasing_analyzer.document.extractors import (
     extract_text_from_document,
     normalize_ai_payload,
@@ -70,14 +70,14 @@ DOCUMENT_EXTRACTION_PROMPT = """Ты анализируешь текст док�
 """
 
 def get_gigachat_client() -> GigaChatClient:
-    """Create a configured GigaChat client or raise if auth is missing."""
+    """Создает настроенный клиент GigaChat или вызывает ошибку при отсутствии авторизации."""
 
     if not CONFIG.gigachat_auth_data:
         raise ValueError("GIGACHAT_AUTH_DATA не установлен. AI-разбор документа недоступен.")
     return GigaChatClient(CONFIG.gigachat_auth_data)
 
 def parse_document(file_name: str, content: bytes, memory_context: str | None = None) -> ExtractedDocumentData:
-    """Extract text from a file and ask GigaChat to structure document data."""
+    """Извлекает текст из файла и просит GigaChat структурировать данные документа."""
 
     text, document_type = extract_text_from_document(file_name, content)
     if not normalize_whitespace(text):
@@ -118,7 +118,7 @@ def calculate_price_check(
     declared_price: Optional[int],
     market_report: dict,
 ) -> dict:
-    """Calculate deviation between declared and market median prices."""
+    """Вычисляет отклонение между заявленной ценой и медианной ценой рынка."""
 
     median_price = market_report.get("median_price")
     market_range = market_report.get("market_range")
@@ -161,7 +161,7 @@ def analyze_document(
     num_results: int = 5,
     memory_context: str | None = None,
 ) -> dict:
-    """Run full document analysis including AI extraction and market comparison."""
+    """Запускает полный анализ документа, включая AI-извлечение и рыночное сравнение."""
 
     parsed = parse_document(file_name, content, memory_context=memory_context)
     default_explanation = (
@@ -234,7 +234,7 @@ def analyze_document(
     }
 
 def format_price(value: Optional[int | float]) -> str:
-    """Format a numeric price for CLI output."""
+    """Форматирует числовую цену для вывода в CLI."""
 
     if value is None:
         return "не определена"
@@ -242,7 +242,7 @@ def format_price(value: Optional[int | float]) -> str:
 
 
 def print_document_analysis(result: dict) -> None:
-    """Render analysis results in a human-readable CLI format."""
+    """Выводит результаты анализа в удобном для чтения CLI-формате."""
 
     print("=" * 70)
     print("АНАЛИЗ ДОКУМЕНТА")
@@ -309,7 +309,7 @@ def print_document_analysis(result: dict) -> None:
             print(f"  - ... и еще {len(sources) - 5} источников")
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser for document analysis."""
+    """Создает парсер аргументов CLI для анализа документов."""
 
     parser = argparse.ArgumentParser(
         description="CLI для AI-анализа документа и проверки заявленной цены по рынку."
@@ -339,7 +339,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """CLI entry point for document analysis."""
+    """Точка входа CLI для анализа документов."""
 
     parser = build_arg_parser()
     args = parser.parse_args(argv)

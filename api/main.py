@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -175,6 +176,38 @@ class DocumentAnalyzeResponse(BaseModel):
     text_preview: Optional[str] = None
 
 
+class StartSessionRequest(BaseModel):
+    userId: Optional[str] = Field(None, min_length=1, max_length=128)
+
+
+class StartSessionResponse(BaseModel):
+    session_id: str
+    user_id: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class MemoryInteractionResponse(BaseModel):
+    kind: str
+    user_input: str
+    response_summary: str
+    item_name: Optional[str] = None
+    price: Optional[int] = None
+    metadata_json: str = "{}"
+    created_at: Optional[str] = None
+
+
+class SessionMemoryResponse(BaseModel):
+    session: dict
+    summary: Optional[str] = None
+    interactions: list[MemoryInteractionResponse] = Field(default_factory=list)
+
+
+class ClearMemoryResponse(BaseModel):
+    cleared: bool
+    session_id: str
+
+
 def select_primary_offer(offers: list[dict], best_offer: Optional[dict]) -> dict:
     candidates: list[dict] = []
     if isinstance(best_offer, dict) and best_offer:
@@ -208,6 +241,60 @@ async def root() -> HTMLResponse:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/api/session/start", response_model=StartSessionResponse)
+async def start_session(payload: StartSessionRequest) -> StartSessionResponse:
+    if not memory_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory service is disabled.",
+        )
+
+    session = memory_service.create_session(str(uuid.uuid4()), user_id=payload.userId)
+    return StartSessionResponse(**session)
+
+
+@app.get("/api/session/{session_id}/memory", response_model=SessionMemoryResponse)
+async def get_session_memory(session_id: str, limit: int = 20) -> SessionMemoryResponse:
+    if not memory_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory service is disabled.",
+        )
+
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="limit must be between 1 and 100.",
+        )
+
+    memory_dump = memory_service.get_session_memory(session_id, limit=limit)
+    if not memory_dump:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session memory not found.",
+        )
+
+    return SessionMemoryResponse(**memory_dump)
+
+
+@app.delete("/api/session/{session_id}/memory", response_model=ClearMemoryResponse)
+async def clear_session_memory(session_id: str) -> ClearMemoryResponse:
+    if not memory_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory service is disabled.",
+        )
+
+    cleared = memory_service.clear_session_memory(session_id)
+    if not cleared:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session memory not found.",
+        )
+
+    return ClearMemoryResponse(cleared=True, session_id=session_id)
 
 
 @app.post("/api/describe", response_model=DescribeResponse)

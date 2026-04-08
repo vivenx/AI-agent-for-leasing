@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 
 class RateLimiter:
-    """Thread-safe rate limiter to prevent API throttling."""
+    """Потокобезопасный лимитер для предотвращения троттлинга API."""
     
     def __init__(self, max_calls: int, period: float, min_delay: float = 0.0):
         self.calls = deque()
@@ -20,14 +20,14 @@ class RateLimiter:
         self.period = period
         self.min_delay = min_delay
         self.last_call_time = 0.0
-        self._lock = Lock()  # Thread safety
+        self._lock = Lock()  # Потокобезопасность
     
     def wait_if_needed(self):
-        """Wait if rate limit would be exceeded (thread-safe)."""
+        """Ждет, если лимит запросов может быть превышен."""
         with self._lock:
             now = time.time()
             
-            # Enforce minimum delay between requests
+            # Соблюдаем минимальную паузу между запросами
             if self.min_delay > 0 and self.last_call_time > 0:
                 time_since_last = now - self.last_call_time
                 if time_since_last < self.min_delay:
@@ -36,18 +36,18 @@ class RateLimiter:
                     time.sleep(sleep_time)
                     now = time.time()
             
-            # Remove old calls outside the period
+            # Удаляем старые вызовы вне текущего периода
             while self.calls and self.calls[0] < now - self.period:
                 self.calls.popleft()
             
-            # If at limit, wait until oldest call expires
+            # Если лимит достигнут, ждем пока истечет самый старый вызов
             if len(self.calls) >= self.max_calls:
                 sleep_time = self.period - (now - self.calls[0])
                 if sleep_time > 0:
                     logger.debug(f"Rate limit: waiting {sleep_time:.1f}s")
                     time.sleep(sleep_time)
                     now = time.time()
-                    # Re-check after sleep
+                    # После паузы перепроверяем окно лимита
                     while self.calls and self.calls[0] < now - self.period:
                         self.calls.popleft()
             

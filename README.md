@@ -9,6 +9,7 @@
 - Искать предложения на рынке, считать диапазон, медиану и отклонение от цены клиента
 - Подтягивать аналоги и сравнения через Perplexity Sonar
 - Использовать GigaChat для AI-разбора текста, характеристик и вспомогательных сравнений
+- Сохранять память по сессии и использовать контекст прошлых запросов через `sessionId`
 - Отдавать локальный веб-интерфейс из `api/templates` и `api/static`
 
 ## Актуальная структура
@@ -35,6 +36,10 @@
 │   │   ├── rate_limit.py
 │   │   ├── sessions.py
 │   │   └── utils.py
+│   ├── memory/
+│   │   ├── models.py
+│   │   ├── repository.py
+│   │   └── service.py
 │   ├── document/
 │   │   ├── extractors.py
 │   │   └── service.py
@@ -97,6 +102,8 @@ PERPLEXITY_MODEL=sonar-reasoning-pro
 # Опционально
 LOG_LEVEL=INFO
 CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+MEMORY_ENABLED=true
+MEMORY_DB_PATH=data/agent_memory.sqlite
 ```
 
 Роли переменных:
@@ -109,6 +116,8 @@ CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
   нужен для Sonar-аналогов и deep-comparison
 - `PERPLEXITY_BASE_URL` и `PERPLEXITY_MODEL`:
   используются, если Sonar идёт через proxy
+- `MEMORY_ENABLED` и `MEMORY_DB_PATH`:
+  включают локальную SQLite-память по сессиям и задают путь к файлу базы
 
 Проверка окружения:
 
@@ -163,7 +172,8 @@ python verify_env.py
   "text": "BMW X5 2024",
   "clientPrice": 8000000,
   "useAI": true,
-  "numResults": 5
+  "numResults": 5,
+  "sessionId": "3f7ef28c-8f0e-4fa6-bc77-7cb8e54a2d12"
 }
 ```
 
@@ -172,7 +182,7 @@ python verify_env.py
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/describe" \
   -H "Content-Type: application/json" \
-  -d "{\"text\":\"BMW X5 2024\",\"clientPrice\":8000000,\"useAI\":true,\"numResults\":5}"
+  -d "{\"text\":\"BMW X5 2024\",\"clientPrice\":8000000,\"useAI\":true,\"numResults\":5,\"sessionId\":\"3f7ef28c-8f0e-4fa6-bc77-7cb8e54a2d12\"}"
 ```
 
 Что возвращает:
@@ -203,7 +213,8 @@ curl -X POST "http://127.0.0.1:8000/api/describe" \
 curl -X POST "http://127.0.0.1:8000/api/analyze-document" \
   -F "file=@contract.docx" \
   -F "useAI=true" \
-  -F "numResults=5"
+  -F "numResults=5" \
+  -F "sessionId=3f7ef28c-8f0e-4fa6-bc77-7cb8e54a2d12"
 ```
 
 Что возвращает:
@@ -217,6 +228,16 @@ curl -X POST "http://127.0.0.1:8000/api/analyze-document" \
 - `sources`
 - `warnings`
 - `text_preview`
+
+### Memory API
+
+Память работает по `sessionId`. Если один и тот же `sessionId` передаётся в несколько запросов, сервис сохраняет краткую историю и использует её как дополнительный контекст.
+
+Доступные endpoints:
+
+- `POST /api/session/start`
+- `GET /api/session/{session_id}/memory`
+- `DELETE /api/session/{session_id}/memory`
 
 ## Использование как Python API
 

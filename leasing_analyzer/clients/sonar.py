@@ -188,8 +188,8 @@ class SonarAnalogFinder:
             logger.info(f"[SONAR] Using direct Perplexity API: {self.api_url} with model: {self.model}")
         
     def is_available(self) -> bool:
-        """Check if Sonar API is available."""
-        # Accept keys starting with 'pplx-' (Perplexity) or 'sk-' (proxy services like artemox)
+        """Проверяет, доступен ли Sonar API."""
+        # Принимаем ключи, начинающиеся с `pplx-` (Perplexity) или `sk-` (прокси-сервисы вроде artemox)
         return bool(self.api_key and (self.api_key.startswith("pplx-") or self.api_key.startswith("sk-")))
     
     def _call_sonar(
@@ -200,8 +200,8 @@ class SonarAnalogFinder:
         return_raw_on_parse_failure: bool = False
     ) -> Optional[dict]:
         """
-        Make a call to Sonar API with minimal tokens.
-        Includes retry logic for 500 errors and timeouts.
+        Выполняет запрос к Sonar API с минимальным числом токенов.
+        Включает повторы для ошибок 500 и таймаутов.
         """
         if not self.api_key:
             return None
@@ -269,14 +269,14 @@ class SonarAnalogFinder:
                     except:
                         pass
                 
-                # Handle 401 Unauthorized - invalid or missing API key
+                # Обрабатываем 401 Unauthorized: невалидный или отсутствующий API-ключ
                 if response.status_code == 401:
                     logger.error("[SONAR] 401 Unauthorized - Invalid or missing PERPLEXITY_API_KEY")
                     logger.error("[SONAR] Please check your .env file and ensure PERPLEXITY_API_KEY is set correctly")
                     logger.error("[SONAR] Key should start with 'pplx-' or 'sk-' (without quotes)")
                     return None
                 
-                # Handle 500 errors - может быть из-за неподдерживаемой модели
+                # Обрабатываем ошибки 500: возможна неподдерживаемая модель
                 if response.status_code == 500:
                     # Проверяем, не связана ли ошибка с моделью
                     try:
@@ -320,7 +320,7 @@ class SonarAnalogFinder:
                 logger.debug(f"[SONAR] Received content length: {len(content)} chars")
                 logger.debug(f"[SONAR] Content preview: {content[:200]}...")
                 
-                # Parse JSON from response
+                # Разбираем JSON из ответа
                 parsed = safe_json_loads(content)
                 if not parsed:
                     logger.warning(f"[SONAR] Failed to parse JSON from content. Content preview: {content[:500]}")
@@ -402,7 +402,7 @@ class SonarAnalogFinder:
         analog_offer: dict,
         raw_content: str = ""
     ) -> dict:
-        """Convert a non-JSON Sonar answer into a usable structured comparison."""
+        """Преобразует не-JSON ответ Sonar в пригодное структурированное сравнение."""
         orig_price = original_offer.get("price")
         analog_price = analog_offer.get("price")
         price_diff = describe_price_difference(orig_price, analog_price)
@@ -728,7 +728,7 @@ class SonarAnalogFinder:
         return result
     
 def get_sonar_finder() -> Optional[SonarAnalogFinder]:
-    """Get or create Sonar finder instance."""
+    """Возвращает или создает экземпляр Sonar finder."""
     global _sonar_finder
     if _sonar_finder is None:
         _sonar_finder = SonarAnalogFinder()
@@ -736,18 +736,18 @@ def get_sonar_finder() -> Optional[SonarAnalogFinder]:
 
 
 def get_cached_sonar_analogs(item_name: str) -> Optional[list]:
-    """Get cached Sonar analogs if available."""
+    """Возвращает закешированные аналоги Sonar, если они есть."""
     cache_key = item_name.lower().strip()
     return _sonar_cache.get(f"analogs_{cache_key}")
 
 
 def cache_sonar_analogs(item_name: str, analogs: list) -> None:
-    """Cache Sonar analogs for the item."""
+    """Сохраняет аналоги Sonar в кеш для указанного объекта."""
     cache_key = item_name.lower().strip()
     _sonar_cache[f"analogs_{cache_key}"] = analogs
 
 
 def clear_sonar_cache() -> None:
-    """Clear Sonar cache."""
+    """Очищает кеш Sonar."""
     global _sonar_cache
     _sonar_cache = {}

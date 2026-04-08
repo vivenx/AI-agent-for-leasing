@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.memory.models import MemoryContext
 from leasing_analyzer.memory.repository import MemoryRepository
 
@@ -10,6 +11,10 @@ from leasing_analyzer.memory.repository import MemoryRepository
 class MemoryService:
     def __init__(self, repository: MemoryRepository):
         self.repository = repository
+
+    def create_session(self, session_id: str, user_id: Optional[str] = None) -> dict:
+        self.repository.ensure_session(session_id, user_id=user_id)
+        return self.repository.get_session(session_id) or {"session_id": session_id, "user_id": user_id}
 
     def build_context(
         self,
@@ -23,11 +28,15 @@ class MemoryService:
         self.repository.ensure_session(session_id, user_id=user_id)
 
         summary = self.repository.get_summary(session_id)
-        recent = self.repository.get_recent_interactions(session_id, limit=5)
+        recent = self.repository.get_recent_interactions(session_id, limit=CONFIG.memory_recent_limit)
 
         related = []
         if item_name:
-            related = self.repository.find_related_by_item(session_id, item_name=item_name, limit=5)
+            related = self.repository.find_related_by_item(
+                session_id,
+                item_name=item_name,
+                limit=CONFIG.memory_related_limit,
+            )
 
         facts: list[str] = []
         seen = set()
@@ -81,9 +90,7 @@ class MemoryService:
             metadata_json=json.dumps(metadata, ensure_ascii=False),
         )
 
-        recent = self.repository.get_recent_interactions(session_id, limit=10)
-        session_summary = " ".join(x["response_summary"] for x in reversed(recent) if x.get("response_summary"))
-        self.repository.upsert_summary(session_id, session_summary[:4000])
+        self._refresh_session_summary(session_id)
 
     def save_document_interaction(
         self,
@@ -121,6 +128,35 @@ class MemoryService:
             metadata_json=json.dumps(metadata, ensure_ascii=False),
         )
 
-        recent = self.repository.get_recent_interactions(session_id, limit=10)
-        session_summary = " ".join(x["response_summary"] for x in reversed(recent) if x.get("response_summary"))
-        self.repository.upsert_summary(session_id, session_summary[:4000])
+        self._refresh_session_summary(session_id)
+
+    def get_session_memory(self, session_id: str, limit: int = 20) -> Optional[dict]:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return None
+
+        return {
+            "session": session,
+            "summary": self.repository.get_summary(session_id),
+            "interactions": self.repository.get_all_interactions(session_id, limit=limit),
+        }
+
+    def clear_session_memory(self, session_id: str) -> bool:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return False
+
+        self.repository.delete_session_memory(session_id)
+        return True
+
+    def _refresh_session_summary(self, session_id: str) -> None:
+        recent = self.repository.get_recent_interactions(
+            session_id,
+            limit=CONFIG.memory_summary_history_limit,
+        )
+        session_summary = " ".join(
+            x["response_summary"]
+            for x in reversed(recent)
+            if x.get("response_summary")
+        )
+        self.repository.upsert_summary(session_id, session_summary[:CONFIG.memory_summary_max_chars])

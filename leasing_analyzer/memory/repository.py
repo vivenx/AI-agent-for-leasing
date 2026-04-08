@@ -124,3 +124,29 @@ class MemoryRepository:
                 WHERE session_id = ?
             """, (session_id,)).fetchone()
         return row["summary"] if row else None
+
+    def get_session(self, session_id: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT session_id, user_id, created_at, updated_at
+                FROM sessions
+                WHERE session_id = ?
+            """, (session_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_all_interactions(self, session_id: str, limit: int = 50) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT kind, user_input, response_summary, item_name, price, metadata_json, created_at
+                FROM interactions
+                WHERE session_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (session_id, limit)).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_session_memory(self, session_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM interactions WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM session_summaries WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))

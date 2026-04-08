@@ -18,7 +18,7 @@ MAX_AI_TEXT_LENGTH = 25_000
 
 @dataclass
 class ExtractedDocumentData:
-    """Structured document data extracted from raw file text."""
+    """Структурированные данные документа, извлеченные из сырого текста файла."""
 
     file_name: str
     document_type: str
@@ -29,13 +29,13 @@ class ExtractedDocumentData:
     characteristics: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 def normalize_whitespace(text: str) -> str:
-    """Collapse repeated whitespace and trim the string."""
+    """Схлопывает повторяющиеся пробелы и обрезает строку."""
 
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
 def decode_text_content(content: bytes) -> str:
-    """Decode plain-text file bytes using common encodings."""
+    """Декодирует байты текстового файла с использованием типовых кодировок."""
 
     for encoding in ("utf-8-sig", "utf-8", "cp1251", "utf-16", "latin-1"):
         try:
@@ -48,7 +48,7 @@ def decode_text_content(content: bytes) -> str:
 
 
 def parse_money(value: Any) -> Optional[int]:
-    """Convert numeric-like input into a positive integer amount."""
+    """Преобразует значение, похожее на число, в положительную целую сумму."""
 
     if value is None:
         return None
@@ -78,7 +78,7 @@ def parse_money(value: Any) -> Optional[int]:
 
 
 def normalize_currency(value: Any) -> str:
-    """Normalize currency markers to a short code used by the API."""
+    """Нормализует обозначение валюты в короткий код, используемый API."""
 
     if not value:
         return "RUB"
@@ -95,7 +95,7 @@ def normalize_currency(value: Any) -> str:
     return normalized[:12] or "RUB"
 
 def stringify_value(value: Any) -> Optional[str]:
-    """Convert arbitrary JSON-like values into a readable string."""
+    """Преобразует произвольное JSON-подобное значение в читаемую строку."""
 
     if value is None:
         return None
@@ -117,7 +117,7 @@ def stringify_value(value: Any) -> Optional[str]:
 
 
 def extract_docx_text(content: bytes) -> str:
-    """Extract visible text from a DOCX archive."""
+    """Извлекает видимый текст из архива DOCX."""
 
     parts: list[str] = []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
@@ -142,7 +142,7 @@ def extract_docx_text(content: bytes) -> str:
 
 
 def extract_pdf_text(content: bytes) -> str:
-    """Extract concatenated text from all PDF pages."""
+    """Извлекает объединенный текст со всех страниц PDF."""
 
     try:
         from pypdf import PdfReader
@@ -161,7 +161,7 @@ def extract_pdf_text(content: bytes) -> str:
 
 
 def extract_text_from_document(file_name: str, content: bytes) -> tuple[str, str]:
-    """Read supported file types and return extracted text plus document type."""
+    """Читает поддерживаемые типы файлов и возвращает текст вместе с типом документа."""
 
     suffix = Path(file_name or "").suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
@@ -185,7 +185,7 @@ def extract_text_from_document(file_name: str, content: bytes) -> tuple[str, str
 
 
 def prepare_text_for_ai(text: str) -> tuple[str, list[str]]:
-    """Trim long documents to the AI input limit and return related warnings."""
+    """Обрезает длинные документы до лимита AI и возвращает связанные предупреждения."""
 
     normalized = text.strip()
     warnings: list[str] = []
@@ -197,7 +197,7 @@ def prepare_text_for_ai(text: str) -> tuple[str, list[str]]:
     return normalized, warnings
 
 def first_non_empty(mapping: dict[str, Any], keys: tuple[str, ...]) -> Any:
-    """Return the first non-empty value for the provided keys."""
+    """Возвращает первое непустое значение среди указанных ключей."""
 
     for key in keys:
         value = mapping.get(key)
@@ -207,7 +207,7 @@ def first_non_empty(mapping: dict[str, Any], keys: tuple[str, ...]) -> Any:
 
 
 def normalize_characteristics(raw_value: Any) -> dict[str, str]:
-    """Normalize AI-returned characteristics into a flat string dictionary."""
+    """Нормализует характеристики от AI в плоский словарь строк."""
 
     if not raw_value:
         return {}
@@ -246,7 +246,7 @@ def normalize_characteristics(raw_value: Any) -> dict[str, str]:
 
 
 def get_characteristic_value(characteristics: dict[str, str], aliases: tuple[str, ...]) -> Optional[str]:
-    """Find a characteristic value by trying several label aliases."""
+    """Ищет значение характеристики по нескольким возможным названиям."""
 
     normalized_aliases = {normalize_whitespace(alias).lower() for alias in aliases}
     for key, value in characteristics.items():
@@ -255,7 +255,7 @@ def get_characteristic_value(characteristics: dict[str, str], aliases: tuple[str
     return None
 
 def build_item_name_from_ai_fields(payload: dict[str, Any], characteristics: dict[str, str]) -> Optional[str]:
-    """Build a final item name from explicit AI fields or key characteristics."""
+    """Собирает итоговое имя объекта из явных полей AI или ключевых характеристик."""
 
     explicit_item = stringify_value(
         first_non_empty(
@@ -289,7 +289,7 @@ def build_item_name_from_ai_fields(payload: dict[str, Any], characteristics: dic
 
 
 def normalize_ai_payload(file_name: str, document_type: str, text: str, payload: dict[str, Any]) -> ExtractedDocumentData:
-    """Map raw GigaChat JSON into the internal extracted-document structure."""
+    """Преобразует сырой JSON от GigaChat во внутреннюю структуру документа."""
 
     root = payload
     for wrapper_key in ("result", "data", "document"):

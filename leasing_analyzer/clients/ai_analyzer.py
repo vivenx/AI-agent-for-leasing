@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 
 class AIAnalyzer:
-    """AI-powered analysis using GigaChat."""
+    """AI-анализ с использованием GigaChat."""
     
     ANALYSIS_PROMPT = """Ты аналитик рынка лизинга авто. По тексту объявления заполни поля и верни только JSON.
 Требуется:
@@ -382,11 +382,15 @@ IT-ОБОРУДОВАНИЕ:
 
     def _compose_user_content(self, text: str) -> str:
         if self.memory_context:
-            return f"Use the following memory from previous interactions if relevant:\n\n{self.memory_context}\n\nCurrent input:\n{text}"
+            return (
+                f"Use the following memory from previous interactions if relevant:\n\n"
+                f"{self.memory_context}\n\n"
+                f"Current input:\n{text}"
+            )
         return text
     
     def analyze_content(self, html_content: str) -> Optional[AIAnalysisResult]:
-        """Analyze HTML content and extract structured data."""
+        """Анализирует HTML-контент и извлекает структурированные данные."""
         text = self.cleaner.clean(html_content)
         if not text:
             return None
@@ -404,7 +408,7 @@ IT-ОБОРУДОВАНИЕ:
             return None
     
     def suggest_analogs(self, item_name: str) -> list[str]:
-        """Get analog suggestions from AI."""
+        """Получает от AI предложения по аналогам."""
         try:
             result = self.client.chat(
                 self.ANALOGS_PROMPT,
@@ -419,14 +423,14 @@ IT-ОБОРУДОВАНИЕ:
         return []
     
     def extract_specs_from_text(self, text: str) -> dict:
-        """Extract technical specifications from text using AI."""
+        """Извлекает технические характеристики из текста с помощью AI."""
         if not text or len(text.strip()) < 50:
             return {}
         
         try:
             result = self.client.chat(
                 self.SPECS_EXTRACTION_PROMPT,
-                self._compose_user_content(text[:8000]),  # Limit text length
+                self._compose_user_content(text[:8000]),  # Ограничиваем длину текста
                 temperature=0.1,
                 max_tokens=2000
             )
@@ -437,7 +441,7 @@ IT-ОБОРУДОВАНИЕ:
         return {}
     
     def review_analog(self, analog_name: str, listings: list[dict]) -> AnalogReview:
-        """Get AI review of an analog model."""
+        """Получает AI-обзор модели-аналога."""
         listings_text = "\n".join(
             f"- {l.get('title', '')} ({l.get('link', '')}) {l.get('snippet', '')}"
             for l in listings
@@ -457,7 +461,7 @@ IT-ОБОРУДОВАНИЕ:
             return {}
     
     def validate_report(self, report: dict) -> ValidationResult:
-        """Validate market report with AI sanity check."""
+        """Проверяет рыночный отчет через AI на адекватность."""
         summary = {
             "item": report.get("item"),
             "median_price": report.get("median_price"),
@@ -480,7 +484,7 @@ IT-ОБОРУДОВАНИЕ:
             return {"is_valid": True, "comment": "AI not available"}
     
     def compare_two_offers(self, offer1: dict, offer2: dict) -> dict:
-        """Compare two offers and determine which is better."""
+        """Сравнивает два предложения и определяет, какое лучше."""
         offer1_str = json.dumps(offer1, ensure_ascii=False, default=str, indent=2)
         offer2_str = json.dumps(offer2, ensure_ascii=False, default=str, indent=2)
         
@@ -502,14 +506,14 @@ IT-ОБОРУДОВАНИЕ:
             return {"winner": 1, "score_1": 5.0, "score_2": 5.0, "reason": "AI unavailable"}
     
     def find_best_offer(self, offers: list[dict]) -> dict:
-        """Find the best offer from a list of offers."""
+        """Находит лучшее предложение в списке."""
         if not offers:
             return {"best_index": -1, "best_score": 0.0, "reason": "No offers"}
         
         if len(offers) == 1:
             return {"best_index": 0, "best_score": 8.0, "reason": "Only one offer", "ranking": [{"index": 0, "score": 8.0, "brief_reason": "Single offer"}]}
         
-        # Format offers for AI
+        # Подготавливаем предложения для AI
         offers_list = "\n\n".join([
             f"Объявление {i}:\n{json.dumps(offer, ensure_ascii=False, default=str, indent=2)}"
             for i, offer in enumerate(offers, 1)
@@ -527,15 +531,15 @@ IT-ОБОРУДОВАНИЕ:
             if result and "best_index" in result:
                 return result
             else:
-                # Fallback: return first offer
+                # Запасной вариант: возвращаем первое предложение
                 return {"best_index": 0, "best_score": 7.0, "reason": "AI parsing failed", "ranking": []}
         except requests.RequestException:
             logger.warning("Failed to find best offer")
-            # Fallback: return first offer
+            # Запасной вариант: возвращаем первое предложение
             return {"best_index": 0, "best_score": 7.0, "reason": "AI unavailable", "ranking": []}
     
     def compare_best_offers(self, best_original: dict, best_analog: dict, original_name: str, analog_name: str) -> dict:
-        """Compare best original offer with best analog offer."""
+        """Сравнивает лучшее исходное предложение с лучшим предложением аналога."""
         original_str = json.dumps(best_original, ensure_ascii=False, default=str, indent=2)
         analog_str = json.dumps(best_analog, ensure_ascii=False, default=str, indent=2)
         

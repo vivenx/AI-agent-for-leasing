@@ -17,11 +17,11 @@ logger = get_logger(__name__)
 
 
 def search_specs_sites(item_name: str, num_sites: int = 5) -> list[dict]:
-    """Search for sites with technical specifications using targeted queries."""
+    """Ищет сайты с техническими характеристиками по целевым запросам."""
     if not CONFIG.serper_api_key:
         return []
     
-    # Build targeted search queries for specs
+    # Формируем целевые поисковые запросы для характеристик
     queries = [
         f"{item_name} характеристики",
         f"{item_name} технические характеристики",
@@ -32,14 +32,14 @@ def search_specs_sites(item_name: str, num_sites: int = 5) -> list[dict]:
     all_results = []
     seen_urls = set()
     
-    for query in queries[:2]:  # Use first 2 queries to avoid too many requests
+    for query in queries[:2]:  # Используем только первые 2 запроса, чтобы не плодить лишние обращения
         results = search_google(query, num_results=num_sites)
         for result in results:
             url = result.get("link", "")
             if url and url not in seen_urls:
-                # Filter for specs-related sites
+                # Фильтруем сайты, связанные с характеристиками
                 domain = urlparse(url).netloc.lower()
-                # Prefer known specs sites
+                # Отдаем приоритет известным сайтам с характеристиками
                 specs_keywords = ["характеристики", "specs", "технические", "обзор", "комплектация"]
                 snippet = (result.get("snippet", "") + " " + result.get("title", "")).lower()
                 
@@ -62,12 +62,12 @@ def extract_specs_from_multiple_sites(
     analyzer: Optional[AIAnalyzer],
     num_sites: int = 5
 ) -> dict:
-    """Extract technical specifications by analyzing multiple specialized sites."""
+    """Извлекает технические характеристики, анализируя несколько специализированных сайтов."""
     if not analyzer:
         logger.warning("AI analyzer not available for specs extraction")
         return {}
     
-    # Search for specs sites
+    # Ищем сайты с характеристиками
     specs_sites = search_specs_sites(item_name, num_sites)
     if not specs_sites:
         logger.warning(f"No specs sites found for {item_name}")
@@ -86,13 +86,13 @@ def extract_specs_from_multiple_sites(
             continue
         
         try:
-            # Fetch page content
+            # Загружаем содержимое страницы
             html = fetcher.fetch_page(url, scroll_times=1, wait=1.0)
             if not html:
                 logger.debug(f"Failed to fetch {url}")
                 continue
             
-            # Clean and extract text
+            # Очищаем HTML и извлекаем текст
             cleaner = ContentCleaner()
             text = cleaner.clean(html)
             
@@ -100,11 +100,11 @@ def extract_specs_from_multiple_sites(
                 logger.debug(f"Insufficient content from {url}")
                 continue
             
-            # Extract specs using AI
+            # Извлекаем характеристики через AI
             specs = analyzer.extract_specs_from_text(text)
             
             if specs:
-                # Merge specs (later sites can override earlier ones)
+                # Объединяем характеристики: более поздние источники могут дополнять предыдущие
                 for key, value in specs.items():
                     if value and (key not in all_specs or not all_specs[key]):
                         all_specs[key] = value
