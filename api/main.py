@@ -1,14 +1,7 @@
-import logging
 import os
 import sys
 from pathlib import Path
 from typing import Optional
-
-# Add parent directory to path for parser_b import
-current_dir = Path(__file__).resolve().parent
-parent_dir = current_dir.parent
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,24 +9,25 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
-from document_analysis import analyze_document
-from parser_b import run_analysis
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+from leasing_analyzer.core.logging import get_logger, setup_logging
+setup_logging()
+
+from leasing_analyzer.document.service import analyze_document
+from leasing_analyzer.services.pipeline import run_analysis
+
+logger = get_logger(__name__)
 
 app = FastAPI(
     title="Leasing descriptor API",
     description="Рыночный анализ предмета лизинга + аналоги",
-    version="1.0.0",
+    version="2.0.0-refactored",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -45,8 +39,10 @@ static_dir = BASE_DIR / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-# CORS настройки (безопаснее для продакшена)
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
+cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:8000,http://127.0.0.1:8000",
+).split(",")
 cors_origins = [origin.strip() for origin in cors_origins if origin.strip()]
 
 app.add_middleware(
@@ -57,7 +53,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rate limiting
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -68,7 +63,7 @@ class DescribeRequest(BaseModel):
     clientPrice: Optional[int] = Field(None, ge=0, le=10**12, description="Цена клиента в рублях")
     useAI: Optional[bool] = Field(True, description="Использовать AI для анализа")
     numResults: Optional[int] = Field(5, ge=1, le=10, description="Количество результатов для поиска")
-    
+
     @field_validator("text")
     @classmethod
     def validate_text(cls, v: str) -> str:
@@ -81,8 +76,8 @@ class AnalogDetail(BaseModel):
     name: str
     avg_price_guess: Optional[int] = None
     note: Optional[str] = None
-    pros: list[str] = []
-    cons: list[str] = []
+    pros: list[str] = Field(default_factory=list)
+    cons: list[str] = Field(default_factory=list)
 
 
 class MarketReport(BaseModel):
@@ -99,7 +94,7 @@ class BestOfferAnalysis(BaseModel):
     best_index: Optional[int] = None
     best_score: Optional[float] = None
     reason: Optional[str] = None
-    ranking: list[dict] = []
+    ranking: list[dict] = Field(default_factory=list)
 
 
 class BestOffersComparison(BaseModel):
@@ -107,46 +102,44 @@ class BestOffersComparison(BaseModel):
     original_score: Optional[float] = None
     analog_score: Optional[float] = None
     price_comparison: Optional[dict] = None
-    pros_original: list[str] = []
-    cons_original: list[str] = []
-    pros_analog: list[str] = []
-    cons_analog: list[str] = []
+    pros_original: list[str] = Field(default_factory=list)
+    cons_original: list[str] = Field(default_factory=list)
+    pros_analog: list[str] = Field(default_factory=list)
+    cons_analog: list[str] = Field(default_factory=list)
     recommendation: Optional[str] = None
-    use_cases_original: list[str] = []
-    use_cases_analog: list[str] = []
-    # Ссылки на объявления для сравнения
+    use_cases_original: list[str] = Field(default_factory=list)
+    use_cases_analog: list[str] = Field(default_factory=list)
     original_url: Optional[str] = None
     analog_url: Optional[str] = None
     original_title: Optional[str] = None
     analog_title: Optional[str] = None
-    # Форматированные цены
     original_price_formatted: Optional[str] = None
     analog_price_formatted: Optional[str] = None
     comparison_details: Optional[dict] = None
-    key_differences: list[str] = []
-    sonar_comparison: bool = False  # True если сравнение через Sonar
+    key_differences: list[str] = Field(default_factory=list)
+    sonar_comparison: bool = False
 
 
 class DescribeResponse(BaseModel):
     category: Optional[str] = None
     vendor: Optional[str] = None
     model: Optional[str] = None
-    price: Optional[int] = None
+    price: Optional[float] = None
     currency: Optional[str] = None
     monthly_payment: Optional[int] = None
     year: Optional[int] = None
     condition: Optional[str] = None
     location: Optional[str] = None
-    specs: dict = {}
-    pros: list[str] = []
-    cons: list[str] = []
-
-    market_report: MarketReport = MarketReport()
-    sources: list[dict] = []
-    
-    # Deep analysis results
+    specs: dict = Field(default_factory=dict)
+    pros: list[str] = Field(default_factory=list)
+    cons: list[str] = Field(default_factory=list)
+    analogs_mentioned: list[str] = Field(default_factory=list)
+    market_report: MarketReport = Field(default_factory=MarketReport)
+    analogs_details: list[AnalogDetail] = Field(default_factory=list)
+    sources: list[dict] = Field(default_factory=list)
     best_original_offer: Optional[dict] = None
     best_original_analysis: Optional[BestOfferAnalysis] = None
+    best_offers_comparison: dict[str, BestOffersComparison] = Field(default_factory=dict)
 
 
 class DocumentPriceCheck(BaseModel):
@@ -165,22 +158,19 @@ class DocumentAnalyzeResponse(BaseModel):
     item_name: Optional[str] = None
     declared_price: Optional[int] = None
     currency: str = "RUB"
-    key_characteristics: dict = {}
-    price_check: DocumentPriceCheck = DocumentPriceCheck()
-    market_report: MarketReport = MarketReport()
-    sources: list[dict] = []
-    warnings: list[str] = []
+    key_characteristics: dict = Field(default_factory=dict)
+    price_check: DocumentPriceCheck = Field(default_factory=DocumentPriceCheck)
+    market_report: MarketReport = Field(default_factory=MarketReport)
+    sources: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     text_preview: Optional[str] = None
 
 
 def select_primary_offer(offers: list[dict], best_offer: Optional[dict]) -> dict:
-    """Pick the most informative offer for top-level item fields."""
     candidates: list[dict] = []
-
     if isinstance(best_offer, dict) and best_offer:
         candidates.append(best_offer)
     candidates.extend(offer for offer in offers if isinstance(offer, dict))
-
     if not candidates:
         return {}
 
@@ -206,44 +196,37 @@ async def root() -> HTMLResponse:
     return HTMLResponse("<h1>index.html не найден</h1>", status_code=404)
 
 
+@app.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
+
+
 @app.post("/api/describe", response_model=DescribeResponse)
 @limiter.limit("10/minute")
 async def describe(request: Request, describe_request: DescribeRequest) -> DescribeResponse:
-    """
-    Главный эндпоинт API для анализа предмета лизинга.
-    
-    **Параметры:**
-    - **text**: Описание предмета лизинга (3-500 символов)
-    - **clientPrice**: Цена клиента в рублях (опционально)
-    - **useAI**: Использовать AI для анализа (по умолчанию True)
-    - **numResults**: Количество результатов для поиска (1-10, по умолчанию 5)
-    
-    **Возвращает:**
-    - Рыночный анализ с диапазоном цен, медианой, отклонением
-    - Список аналогов с детальным сравнением
-    - Лучшие предложения с оценками
-    
-    **Rate Limit:** 10 запросов в минуту на IP адрес
-    """
     item_str = describe_request.text
     client_price = describe_request.clientPrice
     use_ai = describe_request.useAI if describe_request.useAI is not None else True
     num_results = describe_request.numResults if describe_request.numResults else 5
 
-    logger.info(f"Запрос анализа: item={item_str[:80]}..., client_price={client_price}, use_ai={use_ai}, num_results={num_results}")
+    logger.info(
+        "Запрос анализа: item=%s..., client_price=%s, use_ai=%s, num_results=%s",
+        item_str[:80],
+        client_price,
+        use_ai,
+        num_results,
+    )
 
     try:
         try:
-            # Запускаем парсер
             analysis = run_analysis(
                 item=item_str,
                 client_price=client_price,
                 use_ai=use_ai,
                 num_results=num_results,
             )
-        except OverflowError as e:
-            # Защита от int too large to convert to float
-            logger.warning(f"Overflow в run_analysis: {e}")
+        except OverflowError as exc:
+            logger.warning("Overflow в run_analysis: %s", exc)
             analysis = {
                 "item": item_str,
                 "offers_used": [],
@@ -258,65 +241,55 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 },
             }
 
-        # Извлекаем нужные части
         market_report = analysis.get("market_report") or {}
         offers_used = analysis.get("offers_used") or []
-        analogs_details_raw = analysis.get("analogs_details") or []
+        analogs_details_raw = analysis.get("analogs_details") or market_report.get("analogs_details") or []
 
-        # Все объявления для просмотра
         sources_for_response: list[dict] = []
-        for o in offers_used:  # все объявления
+        for offer in offers_used:
             sources_for_response.append(
                 {
-                    "title": o.get("title"),
-                    "source": o.get("source"),
-                    "url": o.get("url"),
-                    "price_str": o.get("price_str"),
-                    "price": o.get("price"),
-                    "monthly_payment_str": o.get("monthly_payment_str"),
-                    "model": o.get("model"),
-                    "year": o.get("year"),
-                    "condition": o.get("condition"),
-                    "location": o.get("location"),
+                    "title": offer.get("title"),
+                    "source": offer.get("source"),
+                    "url": offer.get("url"),
+                    "price_str": offer.get("price_str"),
+                    "price": offer.get("price"),
+                    "monthly_payment_str": offer.get("monthly_payment_str"),
+                    "model": offer.get("model"),
+                    "year": offer.get("year"),
+                    "condition": offer.get("condition"),
+                    "location": offer.get("location"),
                 }
             )
 
-
-        # Первое предложение (для базовых полей)
         primary_offer = select_primary_offer(offers_used, market_report.get("best_original_offer"))
 
-        # Преобразуем аналоги в формат, который ожидает фронт
-        analogs_for_response = []
-        for analog in analogs_details_raw:
-            analogs_for_response.append(
-                AnalogDetail(
-                    name=analog.get("name", "Аналог"),
-                    avg_price_guess=analog.get("avg_price_guess"),
-                    note=analog.get("note"),
-                    pros=analog.get("pros", []),
-                    cons=analog.get("cons", []),
-                )
+        analogs_for_response = [
+            AnalogDetail(
+                name=analog.get("name", "Аналог"),
+                avg_price_guess=analog.get("avg_price_guess"),
+                note=analog.get("note"),
+                pros=analog.get("pros", []),
+                cons=analog.get("cons", []),
             )
+            for analog in analogs_details_raw
+        ]
 
-        # Deep analysis results
         best_original_offer = market_report.get("best_original_offer")
         best_original_analysis_raw = market_report.get("best_original_analysis", {})
         best_offers_comparison_raw = market_report.get("best_offers_comparison", {})
-        
-        # Convert best original analysis
+
         best_original_analysis = None
         if best_original_analysis_raw:
             best_original_analysis = BestOfferAnalysis(
                 best_index=best_original_analysis_raw.get("best_index"),
                 best_score=best_original_analysis_raw.get("best_score"),
                 reason=best_original_analysis_raw.get("reason"),
-                ranking=best_original_analysis_raw.get("ranking", [])
+                ranking=best_original_analysis_raw.get("ranking", []),
             )
-        
-        # Convert comparisons (includes links to specific offers)
-        best_offers_comparison = {}
-        for analog_name, comp_data in best_offers_comparison_raw.items():
-            best_offers_comparison[analog_name] = BestOffersComparison(
+
+        best_offers_comparison = {
+            analog_name: BestOffersComparison(
                 winner=comp_data.get("winner"),
                 original_score=comp_data.get("original_score"),
                 analog_score=comp_data.get("analog_score"),
@@ -328,20 +301,19 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 recommendation=comp_data.get("recommendation"),
                 use_cases_original=comp_data.get("use_cases_original", []),
                 use_cases_analog=comp_data.get("use_cases_analog", []),
-                # Ссылки на конкретные объявления
                 original_url=comp_data.get("original_url"),
                 analog_url=comp_data.get("analog_url"),
                 original_title=comp_data.get("original_title"),
                 analog_title=comp_data.get("analog_title"),
-                # Форматированные цены
                 original_price_formatted=comp_data.get("original_price_formatted"),
                 analog_price_formatted=comp_data.get("analog_price_formatted"),
                 comparison_details=comp_data.get("comparison_details"),
                 key_differences=comp_data.get("key_differences", []),
-                sonar_comparison=comp_data.get("sonar_comparison", False)
+                sonar_comparison=comp_data.get("sonar_comparison", False),
             )
-        
-        # Собираем ответ
+            for analog_name, comp_data in best_offers_comparison_raw.items()
+        }
+
         return DescribeResponse(
             category=primary_offer.get("category"),
             vendor=primary_offer.get("vendor"),
@@ -355,7 +327,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
             specs=primary_offer.get("specs", {}),
             pros=primary_offer.get("pros", []),
             cons=primary_offer.get("cons", []),
-            analogs_mentioned=analysis.get("analogs_suggested", []),
+            analogs_mentioned=analysis.get("analogs_suggested", []) or market_report.get("analogs_suggested", []),
             market_report=MarketReport(
                 item=market_report.get("item"),
                 market_range=market_report.get("market_range"),
@@ -372,33 +344,22 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
             best_offers_comparison=best_offers_comparison,
         )
 
-    except ValueError as e:
-        logger.error(f"Ошибка валидации: {e}")
+    except ValueError as exc:
+        logger.error("Ошибка валидации: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Ошибка валидации входных данных: {str(e)}"
+            detail=f"Ошибка валидации входных данных: {str(exc)}",
         )
-    except Exception as e:
-        logger.error(f"Ошибка в /api/describe: {e}", exc_info=True)
-        
-        # Не возвращаем детали ошибки клиенту в продакшене
-        error_message = str(e)[:200] if os.getenv("DEBUG", "false").lower() == "true" else "Внутренняя ошибка сервера"
-        
+    except Exception as exc:
+        logger.error("Ошибка в /api/describe: %s", exc, exc_info=True)
+        error_message = str(exc)[:200] if os.getenv("DEBUG", "false").lower() == "true" else "Внутренняя ошибка сервера"
         return DescribeResponse(
             category="Ошибка анализа",
             vendor=error_message[:100],
-            specs={},
-            pros=[],
-            cons=[],
-            analogs_mentioned=[],
-            market_report=MarketReport(
-                explanation=f"Ошибка при обработке запроса. Пожалуйста, попробуйте позже."
-            ),
-            analogs_details=[],
+            market_report=MarketReport(explanation="Ошибка при обработке запроса. Пожалуйста, попробуйте позже."),
         )
 
 
-# Проверка обязательных переменных окружения при старте
 @app.post("/api/analyze-document", response_model=DocumentAnalyzeResponse)
 @limiter.limit("5/minute")
 async def analyze_document_endpoint(
@@ -407,25 +368,16 @@ async def analyze_document_endpoint(
     useAI: bool = Form(True),
     numResults: int = Form(5),
 ) -> DocumentAnalyzeResponse:
-    """Analyze uploaded document and compare declared price with market data."""
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не указано имя файла.")
-
     if numResults < 1 or numResults > 10:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Количество результатов должно быть от 1 до 10.",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Количество результатов должно быть от 1 до 10.")
 
     content = await file.read()
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Файл пустой.")
-
     if len(content) > 15 * 1024 * 1024:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Размер файла превышает 15 МБ.",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Размер файла превышает 15 МБ.")
 
     logger.info(
         "Запрос анализа документа: file=%s, size=%s bytes, use_ai=%s, num_results=%s",
@@ -443,30 +395,26 @@ async def analyze_document_endpoint(
             num_results=numResults,
         )
         return DocumentAnalyzeResponse(**result)
-    except ValueError as e:
-        logger.warning("Ошибка анализа документа %s: %s", file.filename, e)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error("Ошибка в /api/analyze-document: %s", e, exc_info=True)
+    except ValueError as exc:
+        logger.warning("Ошибка анализа документа %s: %s", file.filename, exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error("Ошибка в /api/analyze-document: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Внутренняя ошибка при анализе документа.",
         )
 
 
-def check_environment():
-    """Проверяет наличие критичных переменных окружения."""
+def check_environment() -> None:
     warnings = []
-    
     if not os.getenv("SERPER_API_KEY"):
         warnings.append("⚠️  SERPER_API_KEY не установлен - поиск через Google может не работать")
-    
     if not os.getenv("GIGACHAT_AUTH_DATA"):
         warnings.append("⚠️  GIGACHAT_AUTH_DATA не установлен - AI анализ может быть недоступен")
-    
     if not os.getenv("PERPLEXITY_API_KEY"):
         warnings.append("⚠️  PERPLEXITY_API_KEY не установлен - поиск аналогов через Sonar недоступен")
-    
+
     if warnings:
         logger.warning("=" * 70)
         for warning in warnings:
@@ -477,14 +425,13 @@ def check_environment():
 
 
 @app.on_event("startup")
-async def startup_event():
-    """Выполняется при старте приложения."""
+async def startup_event() -> None:
     check_environment()
     logger.info("🚀 API сервер запущен")
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     check_environment()
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

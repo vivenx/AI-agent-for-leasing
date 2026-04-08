@@ -1,235 +1,309 @@
-# Leasing Asset Market Analyzer
+# AI Agent For Leasing
 
-Анализатор рыночной стоимости предметов лизинга с AI-поддержкой и веб-интерфейсом.
+Сервис для проверки рыночной стоимости предмета лизинга и анализа документов. Проект состоит из FastAPI-приложения, веб-интерфейса и Python-пакета `leasing_analyzer` с клиентами AI, поиском, парсингом и расчётом рыночного отчёта.
 
-## 🚀 Быстрый старт
+## Что умеет
 
-### Запуск веб-интерфейса
+- Анализировать предмет лизинга по текстовому описанию через `POST /api/describe`
+- Принимать `txt`, `docx`, `pdf` и извлекать из документа предмет, цену и характеристики через `POST /api/analyze-document`
+- Искать предложения на рынке, считать диапазон, медиану и отклонение от цены клиента
+- Подтягивать аналоги и сравнения через Perplexity Sonar
+- Использовать GigaChat для AI-разбора текста, характеристик и вспомогательных сравнений
+- Отдавать локальный веб-интерфейс из `api/templates` и `api/static`
 
+## Актуальная структура
+
+```text
+.
+├── api/
+│   ├── main.py
+│   ├── templates/
+│   │   └── index.html
+│   └── static/
+│       ├── script.js
+│       ├── style.css
+│       └── favicon.ico
+├── leasing_analyzer/
+│   ├── clients/
+│   │   ├── ai_analyzer.py
+│   │   ├── gigachat.py
+│   │   └── sonar.py
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── logging.py
+│   │   ├── models.py
+│   │   ├── rate_limit.py
+│   │   ├── sessions.py
+│   │   └── utils.py
+│   ├── document/
+│   │   ├── extractors.py
+│   │   └── service.py
+│   ├── parsing/
+│   │   ├── avito.py
+│   │   ├── base.py
+│   │   ├── basic.py
+│   │   ├── content_cleaner.py
+│   │   └── helpers.py
+│   └── services/
+│       ├── fetcher.py
+│       ├── market.py
+│       ├── output.py
+│       ├── pipeline.py
+│       ├── search.py
+│       └── specs.py
+├── requirements.txt
+├── verify_env.py
+├── .env.example
+└── README.md
 ```
-cd api
-uvicorn main:app --reload
-```
 
-Затем откройте в браузере: **http://localhost:8000**
+## Требования
 
-### Запуск CLI (консольный режим)
-
-```bash
-python parser_b.py
-```
-
-## ✨ Возможности
-
-### 🔍 Глубокий анализ объявлений (Perplexity Sonar)
-
-1. **Поиск аналогов через Sonar** — всегда находит ровно 3 релевантных аналога
-2. **Сравнение с каждым аналогом** — Sonar сравнивает конкретное объявление оригинала с объявлением каждого аналога
-3. **Ссылки на объявления** — каждое сравнение включает ссылки на конкретные объявления
-4. **Детальный анализ** — плюсы/минусы каждого варианта, разница в цене, рекомендация
-
-### 📊 Анализ включает:
-
-- Рыночный диапазон цен
-- Медианная и средняя цена
-- Сравнение с ценой клиента
-- Поиск и анализ аналогов
-- AI-оценка объявлений (0-10 баллов)
-- Детальное сравнение с плюсами/минусами
-- Рекомендации по выбору
-
-### 🎨 Веб-интерфейс
-
-- Современный дизайн
-- Отображение лучших объявлений
-- Интерактивное сравнение
-- Прогресс-бар при обработке
-- Адаптивная верстка
-
-## 📋 Требования
-
-Установите зависимости:
+- Python 3.11+
+- Google Chrome
+- Доступ в интернет для внешних API и Selenium Manager
+- Установленные зависимости:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Переменные окружения
+Важно:
 
-Создайте файл `.env` в корне проекта:
+- Для `selenium` нужен доступ к Chrome и ChromeDriver. Если Selenium Manager не может скачать драйвер, анализ рынка будет зависать или падать на инициализации браузера.
+- Для PDF-анализа нужен пакет `pypdf`. Он уже указан в `requirements.txt`.
+
+## Настройка `.env`
+
+Скопируйте шаблон:
+
+```bash
+copy .env.example .env
+```
+
+или вручную создайте `.env` в корне проекта.
+
+Минимальный пример:
 
 ```env
 SERPER_API_KEY=your_serper_api_key
 GIGACHAT_AUTH_DATA=your_gigachat_auth_data
+PERPLEXITY_API_KEY=your_perplexity_or_proxy_key
 
-# Вариант 1: Прямой Perplexity API
-PERPLEXITY_API_KEY=pplx-your_perplexity_api_key
-
-# Вариант 2: Прокси через artemox.com (рекомендуется)
-PERPLEXITY_API_KEY=sk-your_proxy_api_key
+# Опционально для proxy-режима Sonar
 PERPLEXITY_BASE_URL=https://api.artemox.com/v1
-PERPLEXITY_MODEL=sonar
+PERPLEXITY_MODEL=sonar-reasoning-pro
+
+# Опционально
+LOG_LEVEL=INFO
+CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
 ```
 
-#### 🔑 Как получить и настроить Perplexity API ключ:
+Роли переменных:
 
-1. **Получите API ключ:**
-   - Перейдите на https://www.perplexity.ai/settings/api
-   - Войдите в свой аккаунт Perplexity
-   - Скопируйте API ключ (он начинается с `pplx-`)
+- `SERPER_API_KEY`:
+  нужен для поиска объявлений через Serper/Google
+- `GIGACHAT_AUTH_DATA`:
+  нужен для AI-анализа и обязателен для `POST /api/analyze-document`
+- `PERPLEXITY_API_KEY`:
+  нужен для Sonar-аналогов и deep-comparison
+- `PERPLEXITY_BASE_URL` и `PERPLEXITY_MODEL`:
+  используются, если Sonar идёт через proxy
 
-2. **Добавьте в файл `.env`:**
-   
-   **Для прямого Perplexity API:**
-   ```env
-   PERPLEXITY_API_KEY=pplx-ваш_ключ_здесь
-   ```
-   
-   **Для прокси (artemox.com) - рекомендуется:**
-   ```env
-   PERPLEXITY_API_KEY=sk-ваш_ключ_здесь
-   PERPLEXITY_BASE_URL=https://api.artemox.com/v1
-   PERPLEXITY_MODEL=sonar
-   ```
-   
-   ⚠️ **Примечание:** Некоторые прокси не поддерживают `sonar-reasoning`. Используйте `sonar` или оставьте поле пустым - система автоматически выберет доступную модель.
-   
-   ⚠️ **ВАЖНО:** 
-   - Ключ должен начинаться с `pplx-` (прямой API) или `sk-` (прокси)
-   - Без кавычек и пробелов вокруг `=`
-   - Если ключ начинается с `sk-`, система автоматически определит прокси
-
-3. **Примеры правильного формата:**
-   ```env
-   # Прямой Perplexity API
-   PERPLEXITY_API_KEY=pplx-abc123def456ghi789jkl012mno345pqr678stu901vwx234yz
-   
-   # Прокси через artemox.com (автоматически определяется)
-   PERPLEXITY_API_KEY=sk-abc123def456ghi789jkl012mno345pqr678stu901vwx234yz
-   ```
-
-4. **Проверка:**
-   - Убедитесь, что файл `.env` находится в корне проекта (рядом с `parser_b.py`)
-   - Перезапустите сервер после добавления ключа
-   - В логах должно появиться: `[SONAR] Perplexity Sonar API initialized`
-
-**Perplexity Sonar API** - ОСНОВНОЙ метод поиска аналогов:
-- 🔍 **Поиск аналогов** - Sonar является ПЕРВИЧНЫМ методом поиска 3 аналогов
-- ⚖️ **Сравнение объявлений** - Sonar сравнивает конкретное объявление оригинала с объявлением каждого аналога
-- 🔗 **Ссылки на объявления** - каждое сравнение включает прямые ссылки на сравниваемые объявления
-- 💰 **Минимальный расход токенов** - оптимизированные промпты для экономии
-
-**Важно:** 
-- Если `PERPLEXITY_API_KEY` не установлен или неверный, система автоматически использует fallback методы (GigaChat/Google)
-- При ошибке 401 (Unauthorized) проверьте правильность ключа в `.env` файле
-
-## 🛠️ Использование
-
-### Веб-интерфейс
-
-1. Запустите сервер: `python parser_b.py --web`
-2. Откройте http://localhost:8000
-3. Введите предмет лизинга (например: "BMW M5 2024")
-4. Укажите цену клиента (опционально)
-5. Нажмите "Начать анализ"
-
-### API
-
-```python
-from parser_b import run_analysis
-
-result = run_analysis(
-    item="BMW M5 2024",
-    client_price=8000000,
-    use_ai=True,
-    num_results=5
-)
-```
-
-### Анализ документа
-
-Добавлен отдельный backend-модуль `document_analysis.py` и API-эндпоинт `POST /api/analyze-document`.
-
-CLI-запуск:
+Проверка окружения:
 
 ```bash
-python document_analysis.py contract.docx
-python document_analysis.py contract.pdf --json
-python document_analysis.py contract.txt --output result.json
+python verify_env.py
 ```
 
-Что делает эндпоинт:
-- принимает файл `txt`, `docx` или `pdf`
-- извлекает текст документа
-- выделяет предмет лизинга, цену и ключевые характеристики
-- запускает рыночную проверку по извлеченному предмету
-- считает отклонение и возвращает вывод, подтверждается ли цена рынком
+## Запуск
+
+Запускать сервер лучше из корня проекта, а не из `api/`.
+
+### Windows PowerShell
+
+```powershell
+.\venv\Scripts\python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+### Git Bash
+
+```bash
+./venv/Scripts/python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+После запуска:
+
+- UI: `http://127.0.0.1:8000/`
+- Swagger: `http://127.0.0.1:8000/docs`
+- Healthcheck: `http://127.0.0.1:8000/health`
+
+## API
+
+### `GET /`
+
+Отдаёт локальный веб-интерфейс.
+
+### `GET /health`
+
+Простой healthcheck:
+
+```json
+{"status": "ok"}
+```
+
+### `POST /api/describe`
+
+Анализирует предмет лизинга по текстовому описанию.
+
+Пример запроса:
+
+```json
+{
+  "text": "BMW X5 2024",
+  "clientPrice": 8000000,
+  "useAI": true,
+  "numResults": 5
+}
+```
 
 Пример `curl`:
 
 ```bash
-curl -X POST "http://localhost:8000/api/analyze-document" ^
-  -F "file=@contract.docx" ^
-  -F "useAI=true" ^
+curl -X POST "http://127.0.0.1:8000/api/describe" \
+  -H "Content-Type: application/json" \
+  -d "{\"text\":\"BMW X5 2024\",\"clientPrice\":8000000,\"useAI\":true,\"numResults\":5}"
+```
+
+Что возвращает:
+
+- агрегированный `market_report`
+- список `sources`
+- подобранные `analogs_details`
+- `best_original_offer` и `best_offers_comparison`, если deep-analysis отработал
+
+### `POST /api/analyze-document`
+
+Принимает файл и строит документный и рыночный отчёт.
+
+Поддерживаемые форматы:
+
+- `.txt`
+- `.docx`
+- `.pdf`
+
+Ограничения:
+
+- размер файла до 15 МБ
+- для корректного результата нужен `GIGACHAT_AUTH_DATA`
+
+Пример `curl`:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/analyze-document" \
+  -F "file=@contract.docx" \
+  -F "useAI=true" \
   -F "numResults=5"
 ```
 
-Для PDF нужна зависимость `pypdf` из `requirements.txt`.
+Что возвращает:
 
-## 📁 Структура проекта
+- `item_name`
+- `declared_price`
+- `currency`
+- `key_characteristics`
+- `price_check`
+- `market_report`
+- `sources`
+- `warnings`
+- `text_preview`
 
+## Использование как Python API
+
+Текущий программный entrypoint находится в `leasing_analyzer.services.pipeline`.
+
+```python
+from leasing_analyzer.services.pipeline import run_analysis
+
+result = run_analysis(
+    item="BMW X5 2024",
+    client_price=8_000_000,
+    use_ai=True,
+    num_results=5,
+)
 ```
-.
-├── parser_b.py          # Основной модуль анализа
-├── api/
-│   ├── main.py          # FastAPI сервер
-│   ├── templates/      # HTML шаблоны
-│   └── static/          # CSS, JS
-├── requirements.txt     # Зависимости
-└── README.md           # Документация
+
+Для документного анализа:
+
+```python
+from leasing_analyzer.document.service import analyze_document
+
+with open("contract.docx", "rb") as f:
+    result = analyze_document(
+        file_name="contract.docx",
+        content=f.read(),
+        use_ai=True,
+        num_results=5,
+    )
 ```
 
-## 🔧 Настройки
+## Как устроен поток обработки
 
-Все настройки находятся в классе `Config` в `parser_b.py`:
+### Анализ предмета
 
-- Параллельная обработка URL
-- Rate limiting для API
-- Таймауты Selenium
-- Курсы валют
-- И другие параметры
+1. `api.main` принимает запрос
+2. `leasing_analyzer.services.pipeline.run_analysis()` запускает основной pipeline
+3. `services.search` собирает поисковые URL и предложения
+4. `services.fetcher` тянет страницы через Selenium
+5. `parsing.*` извлекают данные объявлений
+6. `services.market` считает рынок, аналоги и сравнения
+7. `clients.gigachat` и `clients.sonar` подключаются, если включён AI и заданы ключи
 
-## 📝 Особенности
+### Анализ документа
 
-- ✅ Параллельная обработка URL (ускорение в 3-5 раз)
-- ✅ Rate limiting для защиты от блокировок
-- ✅ Дедупликация объявлений
-- ✅ Нормализация валют
-- ✅ Таймауты для надежности
-- ✅ Прогресс-бар обработки
-- ✅ Strategy pattern для парсеров
+1. `api.main` принимает файл
+2. `document.extractors` извлекает текст
+3. `document.service` отправляет текст в GigaChat
+4. После извлечения предмета запускается обычный рыночный pipeline
 
-## 🎯 Примеры использования
+## Логи и диагностика
 
-### Поиск лучшего объявления
+Логирование настраивается в:
 
-Система автоматически:
-1. Находит все объявления оригинала
-2. Сравнивает их между собой через AI
-3. Выбирает лучшее (с оценкой 0-10)
-4. Показывает рейтинг всех объявлений
+- `leasing_analyzer/core/logging.py`
 
-### Сравнение с аналогами
+Уровень логов:
 
-Для каждого аналога:
-1. Находятся объявления
-2. Выбирается лучшее
-3. Сравнивается с лучшим оригиналом
-4. Выдаются рекомендации
+```env
+LOG_LEVEL=INFO
+```
 
-## 📞 Поддержка
+Если сервер не стартует или UI открывается, но анализ не идёт, проверьте:
 
-При возникновении проблем проверьте:
-- Установлены ли все зависимости
-- Настроены ли переменные окружения
-- Доступен ли интернет для API запросов
+- загрузились ли ключи из `.env`
+- запускаете ли сервер из корня проекта
+- доступен ли Chrome
+- может ли Selenium Manager скачать драйвер
+- есть ли доступ в интернет к Serper, GigaChat и Perplexity
+
+## Известные ограничения
+
+- Анализ рынка зависит от Selenium и внешних сайтов
+- Без `SERPER_API_KEY` поиск будет ограничен
+- Без `GIGACHAT_AUTH_DATA` document-analysis не работает
+- Без `PERPLEXITY_API_KEY` не будет Sonar-аналогов и части deep-analysis
+- Если TLS для GigaChat оставлен с `verify=False`, это рабочий, но небезопасный режим
+
+## Что устарело
+
+В репозитории больше не стоит ориентироваться на старые инструкции про:
+
+- `parser_b.py` как основной entrypoint
+- `document_analysis.py` как отдельный CLI-модуль
+- запуск `uvicorn main:app` из `api/` как основной рекомендуемый способ
+
+Актуальная точка входа для сервера:
+
+```bash
+python -m uvicorn api.main:app --reload
+```

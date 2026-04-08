@@ -21,7 +21,7 @@
 }
 
 body {
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-family: "Segoe UI Variable", "Segoe UI", "Trebuchet MS", system-ui, sans-serif;
     background:
         radial-gradient(ellipse at 0% 0%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
         radial-gradient(ellipse at 100% 100%, rgba(16, 185, 129, 0.15) 0%, transparent 50%),
