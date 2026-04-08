@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import json
+from typing import Optional
+
+from leasing_analyzer.memory.models import MemoryContext
+from leasing_analyzer.memory.repository import MemoryRepository
+
+
+class MemoryService:
+    def __init__(self, repository: MemoryRepository):
+        self.repository = repository
+
+    def build_context(
+        self,
+        session_id: Optional[str],
+        user_id: Optional[str] = None,
+        item_name: Optional[str] = None,
+    ) -> Optional[MemoryContext]:
+        if not session_id:
+            return None
+
+        self.repository.ensure_session(session_id, user_id=user_id)
+
+        summary = self.repository.get_summary(session_id)
+        recent = self.repository.get_recent_interactions(session_id, limit=5)
+
+        related = []
+        if item_name:
+            related = self.repository.find_related_by_item(session_id, item_name=item_name, limit=5)
+
+        facts: list[str] = []
+        seen = set()
+        for row in related:
+            text = row.get("response_summary") or ""
+            if text and text not in seen:
+                seen.add(text)
+                facts.append(text)
+
+        return MemoryContext(
+            session_id=session_id,
+            summary=summary,
+            recent_interactions=recent,
+            relevant_facts=facts,
+        )
+
+    def save_describe_interaction(
+        self,
+        session_id: Optional[str],
+        user_input: str,
+        result: dict,
+    ) -> None:
+        if not session_id:
+            return
+
+        market = result.get("market_report") or {}
+        analogs = result.get("analogs_suggested") or market.get("analogs_suggested") or []
+        item_name = result.get("item") or market.get("item")
+        median = market.get("median_price")
+        price_range = market.get("market_range")
+
+        summary = (
+            f"Analyzed item '{item_name}'. "
+            f"Median market price: {median}. "
+            f"Market range: {price_range}. "
+            f"Suggested analogs: {', '.join(analogs[:3]) if analogs else 'none'}."
+        )
+
+        metadata = {
+            "market_report": market,
+            "analogs": analogs[:5],
+        }
+
+        self.repository.add_interaction(
+            session_id=session_id,
+            kind="describe",
+            user_input=user_input,
+            response_summary=summary,
+            item_name=item_name,
+            price=market.get("client_price"),
+            metadata_json=json.dumps(metadata, ensure_ascii=False),
+        )
+
+        recent = self.repository.get_recent_interactions(session_id, limit=10)
+        session_summary = " ".join(x["response_summary"] for x in reversed(recent) if x.get("response_summary"))
+        self.repository.upsert_summary(session_id, session_summary[:4000])
+
+    def save_document_interaction(
+        self,
+        session_id: Optional[str],
+        file_name: str,
+        result: dict,
+    ) -> None:
+        if not session_id:
+            return
+
+        item_name = result.get("item_name")
+        declared_price = result.get("declared_price")
+        price_check = result.get("price_check") or {}
+
+        summary = (
+            f"Analyzed document '{file_name}'. "
+            f"Extracted item: '{item_name}'. "
+            f"Declared price: {declared_price}. "
+            f"Price check verdict: {price_check.get('verdict')}."
+        )
+
+        metadata = {
+            "file_name": file_name,
+            "key_characteristics": result.get("key_characteristics") or {},
+            "warnings": result.get("warnings") or [],
+        }
+
+        self.repository.add_interaction(
+            session_id=session_id,
+            kind="document",
+            user_input=file_name,
+            response_summary=summary,
+            item_name=item_name,
+            price=declared_price,
+            metadata_json=json.dumps(metadata, ensure_ascii=False),
+        )
+
+        recent = self.repository.get_recent_interactions(session_id, limit=10)
+        session_summary = " ".join(x["response_summary"] for x in reversed(recent) if x.get("response_summary"))
+        self.repository.upsert_summary(session_id, session_summary[:4000])

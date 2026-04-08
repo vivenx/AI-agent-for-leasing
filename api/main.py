@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from leasing_analyzer.core.config import CONFIG
+from leasing_analyzer.memory import MemoryRepository, MemoryService
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -23,6 +25,11 @@ from leasing_analyzer.document.service import analyze_document
 from leasing_analyzer.services.pipeline import run_analysis
 
 logger = get_logger(__name__)
+memory_service = None
+if CONFIG.memory_enabled:
+    memory_repository = MemoryRepository(CONFIG.memory_db_path)
+    memory_service = MemoryService(memory_repository)
+
 
 app = FastAPI(
     title="Leasing descriptor API",
@@ -63,6 +70,8 @@ class DescribeRequest(BaseModel):
     clientPrice: Optional[int] = Field(None, ge=0, le=10**12, description="Цена клиента в рублях")
     useAI: Optional[bool] = Field(True, description="Использовать AI для анализа")
     numResults: Optional[int] = Field(5, ge=1, le=10, description="Количество результатов для поиска")
+    sessionId: Optional[str] = Field(None, min_length=8, max_length=128, description="ID сессии для памяти")
+    userId: Optional[str] = Field(None, min_length=1, max_length=128, description="ID пользователя")
 
     @field_validator("text")
     @classmethod
@@ -208,6 +217,17 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
     client_price = describe_request.clientPrice
     use_ai = describe_request.useAI if describe_request.useAI is not None else True
     num_results = describe_request.numResults if describe_request.numResults else 5
+    session_id = describe_request.sessionId
+    user_id = describe_request.userId
+
+    memory_context = None
+    if memory_service and session_id:
+        context = memory_service.build_context(
+            session_id=session_id,
+            user_id=user_id,
+            item_name=item_str,
+        )
+        memory_context = context.to_prompt_block() if context else None
 
     logger.info(
         "Запрос анализа: item=%s..., client_price=%s, use_ai=%s, num_results=%s",
@@ -224,6 +244,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 client_price=client_price,
                 use_ai=use_ai,
                 num_results=num_results,
+                memory_context=memory_context,
             )
         except OverflowError as exc:
             logger.warning("Overflow в run_analysis: %s", exc)
@@ -240,6 +261,13 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                     "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
                 },
             }
+
+        if memory_service and session_id:
+            memory_service.save_describe_interaction(
+                session_id=session_id,
+                user_input=item_str,
+                result=analysis,
+            )
 
         market_report = analysis.get("market_report") or {}
         offers_used = analysis.get("offers_used") or []
@@ -367,6 +395,8 @@ async def analyze_document_endpoint(
     file: UploadFile = File(...),
     useAI: bool = Form(True),
     numResults: int = Form(5),
+    sessionId: Optional[str] = Form(None),
+    userId: Optional[str] = Form(None),
 ) -> DocumentAnalyzeResponse:
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не указано имя файла.")
@@ -388,12 +418,28 @@ async def analyze_document_endpoint(
     )
 
     try:
+        memory_context = None
+        if memory_service and sessionId:
+            context = memory_service.build_context(
+                session_id=sessionId,
+                user_id=userId,
+                item_name=file.filename,
+            )
+            memory_context = context.to_prompt_block() if context else None
+
         result = analyze_document(
             file_name=file.filename,
             content=content,
             use_ai=useAI,
             num_results=numResults,
+            memory_context=memory_context,
         )
+        if memory_service and sessionId:
+            memory_service.save_document_interaction(
+                session_id=sessionId,
+                file_name=file.filename,
+                result=result,
+            )
         return DocumentAnalyzeResponse(**result)
     except ValueError as exc:
         logger.warning("Ошибка анализа документа %s: %s", file.filename, exc)

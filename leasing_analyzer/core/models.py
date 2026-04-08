@@ -85,6 +85,8 @@ class UserInput(TypedDict):
     client_price: Optional[int]
     use_ai: bool
     num_results: int
+    memory_context: Optional[str]
+
 
 
 @dataclass

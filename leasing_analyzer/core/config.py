@@ -90,6 +90,12 @@ class Config:
     sonar_rate_limit_calls: int = 10
     sonar_rate_limit_period: float = 60.0
     sonar_min_delay: float = 0.3
+
+        # Memory settings
+    memory_enabled: bool = field(default_factory=lambda: os.getenv("MEMORY_ENABLED", "true").lower() == "true")
+    memory_db_path: str = field(default_factory=lambda: os.getenv("MEMORY_DB_PATH", str(_REPO_ROOT / "data" / "agent_memory.sqlite")))
+    memory_recent_limit: int = 5
+    memory_related_limit: int = 5
     
     # Currency exchange rates (to RUB)
     exchange_rates: dict[str, float] = field(default_factory=lambda: {

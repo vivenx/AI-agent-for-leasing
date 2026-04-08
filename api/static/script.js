@@ -1,6 +1,7 @@
 const byId = (id) => document.getElementById(id);
 
 const REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+const SESSION_STORAGE_KEY = "leasing_ai_session_id";
 
 const elements = {
   form: byId("analyzeForm"),
@@ -48,6 +49,15 @@ function init() {
   bindFileInput();
   bindForm();
   setMode("manual");
+}
+
+function getOrCreateSessionId() {
+  let sessionId = window.localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    window.localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+  }
+  return sessionId;
 }
 
 function bindModeToggle() {
@@ -176,6 +186,7 @@ async function submitManual() {
         clientPrice,
         useAI: elements.useAI?.value === "true",
         numResults,
+        sessionId: getOrCreateSessionId(),
       }),
     });
     renderManualResult(data, clientPrice);
@@ -202,6 +213,7 @@ async function submitDocument() {
     formData.append("file", file);
     formData.append("useAI", String(elements.useAI?.value === "true"));
     formData.append("numResults", String(numResults));
+    formData.append("sessionId", getOrCreateSessionId());
 
     const data = await requestJson("/api/analyze-document", {
       method: "POST",

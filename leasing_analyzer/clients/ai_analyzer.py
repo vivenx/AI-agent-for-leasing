@@ -375,9 +375,15 @@ IT-ОБОРУДОВАНИЕ:
   "key_differences": ["главное отличие 1", "главное отличие 2", "главное отличие 3"]
 }}"""
     
-    def __init__(self, client: GigaChatClient, cleaner: ContentCleaner):
+    def __init__(self, client: GigaChatClient, cleaner: ContentCleaner, memory_context: str | None = None):
         self.client = client
         self.cleaner = cleaner
+        self.memory_context = memory_context
+
+    def _compose_user_content(self, text: str) -> str:
+        if self.memory_context:
+            return f"Use the following memory from previous interactions if relevant:\n\n{self.memory_context}\n\nCurrent input:\n{text}"
+        return text
     
     def analyze_content(self, html_content: str) -> Optional[AIAnalysisResult]:
         """Analyze HTML content and extract structured data."""
@@ -388,7 +394,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 self.ANALYSIS_PROMPT,
-                text,
+                self._compose_user_content(text),
                 temperature=0.1,
                 max_tokens=1500
             )
@@ -402,7 +408,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 self.ANALOGS_PROMPT,
-                item_name,
+                self._compose_user_content(item_name),
                 temperature=0.2,
                 max_tokens=500
             )
@@ -420,7 +426,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 self.SPECS_EXTRACTION_PROMPT,
-                text[:8000],  # Limit text length
+                self._compose_user_content(text[:8000]),  # Limit text length
                 temperature=0.1,
                 max_tokens=2000
             )
@@ -441,7 +447,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 self.REVIEW_PROMPT,
-                user_content,
+                self._compose_user_content(user_content),
                 temperature=0.2,
                 max_tokens=600
             )
@@ -464,7 +470,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 self.VALIDATION_PROMPT,
-                f"Отчет:\n{details}",
+                self._compose_user_content(f"Отчет:\n{details}"),
                 temperature=0.1,
                 max_tokens=500
             )
@@ -486,7 +492,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 prompt,
-                "Сравни объявления",
+                self._compose_user_content("Сравни объявления"),
                 temperature=0.2,
                 max_tokens=800
             )
@@ -514,7 +520,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 prompt,
-                "Найди лучшее объявление",
+                self._compose_user_content("Найди лучшее объявление"),
                 temperature=0.2,
                 max_tokens=1000
             )
@@ -543,7 +549,7 @@ IT-ОБОРУДОВАНИЕ:
         try:
             result = self.client.chat(
                 prompt,
-                "Сравни лучшие объявления",
+                self._compose_user_content("Сравни лучшие объявления"),
                 temperature=0.2,
                 max_tokens=1200
             )

@@ -73,6 +73,8 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
     client_price = params["client_price"]
     use_ai = params["use_ai"]
     num_results = params["num_results"]
+    memory_context = params.get("memory_context")
+
 
     fetcher = SeleniumFetcher()
     cleaner = ContentCleaner()
@@ -94,7 +96,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
     analyzer = None
     if use_ai and CONFIG.gigachat_auth_data:
         client = GigaChatClient(CONFIG.gigachat_auth_data)
-        analyzer = AIAnalyzer(client, cleaner)
+        analyzer = AIAnalyzer(client, cleaner, memory_context=memory_context)
 
     try:
         query = f"{item} {CONFIG.default_search_suffix}"
@@ -416,6 +418,7 @@ def run_analysis(
     client_price: int | None = None,
     use_ai: bool = True,
     num_results: int = 5,
+    memory_context: str | None = None,
 ) -> dict:
     """
     API entry point for running analysis programmatically.
@@ -434,6 +437,8 @@ def run_analysis(
         "client_price": client_price,
         "use_ai": use_ai,
         "num_results": num_results,
+        "memory_context": memory_context,
+
     }
     
     offers, report = run_pipeline(params)

@@ -76,7 +76,7 @@ def get_gigachat_client() -> GigaChatClient:
         raise ValueError("GIGACHAT_AUTH_DATA не установлен. AI-разбор документа недоступен.")
     return GigaChatClient(CONFIG.gigachat_auth_data)
 
-def parse_document(file_name: str, content: bytes) -> ExtractedDocumentData:
+def parse_document(file_name: str, content: bytes, memory_context: str | None = None) -> ExtractedDocumentData:
     """Extract text from a file and ask GigaChat to structure document data."""
 
     text, document_type = extract_text_from_document(file_name, content)
@@ -93,6 +93,13 @@ def parse_document(file_name: str, content: bytes) -> ExtractedDocumentData:
         "Текст документа:\n"
         f"{ai_text}"
     )
+
+    if memory_context:
+        user_content = (
+            "Use the following memory from previous interactions if relevant:\n\n"
+            f"{memory_context}\n\n"
+            f"{user_content}"
+        )
 
     payload = client.chat(
         system_prompt=DOCUMENT_EXTRACTION_PROMPT,
@@ -152,10 +159,11 @@ def analyze_document(
     content: bytes,
     use_ai: bool = True,
     num_results: int = 5,
+    memory_context: str | None = None,
 ) -> dict:
     """Run full document analysis including AI extraction and market comparison."""
 
-    parsed = parse_document(file_name, content)
+    parsed = parse_document(file_name, content, memory_context=memory_context)
     default_explanation = (
         f"Рыночный анализ не выполнен: предмет лизинга определен как '{parsed.item_name}', но поиск не был запущен."
         if parsed.item_name
@@ -183,6 +191,7 @@ def analyze_document(
                 client_price=parsed.declared_price,
                 use_ai=use_ai,
                 num_results=num_results,
+                memory_context=memory_context,
             )
         except Exception as exc:
             error_message = str(exc)[:200]
