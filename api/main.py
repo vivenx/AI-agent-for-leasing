@@ -30,11 +30,14 @@ memory_service = None
 if CONFIG.memory_enabled:
     memory_repository = MemoryRepository(CONFIG.memory_db_path)
     memory_service = MemoryService(memory_repository)
+    logger.info("Memory service enabled: db=%s", CONFIG.memory_db_path)
+else:
+    logger.info("Memory service disabled by configuration")
 
 
 app = FastAPI(
     title="Leasing descriptor API",
-    description="Рыночный анализ предмета лизинга + аналоги",
+    description="Р С‹РЅРѕС‡РЅС‹Р№ Р°РЅР°Р»РёР· РїСЂРµРґРјРµС‚Р° Р»РёР·РёРЅРіР° + Р°РЅР°Р»РѕРіРё",
     version="2.0.0-refactored",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -67,18 +70,18 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 class DescribeRequest(BaseModel):
-    text: str = Field(..., min_length=3, max_length=500, description="Описание предмета лизинга")
-    clientPrice: Optional[int] = Field(None, ge=0, le=10**12, description="Цена клиента в рублях")
-    useAI: Optional[bool] = Field(True, description="Использовать AI для анализа")
-    numResults: Optional[int] = Field(5, ge=1, le=10, description="Количество результатов для поиска")
-    sessionId: Optional[str] = Field(None, min_length=8, max_length=128, description="ID сессии для памяти")
-    userId: Optional[str] = Field(None, min_length=1, max_length=128, description="ID пользователя")
+    text: str = Field(..., min_length=3, max_length=500, description="РћРїРёСЃР°РЅРёРµ РїСЂРµРґРјРµС‚Р° Р»РёР·РёРЅРіР°")
+    clientPrice: Optional[int] = Field(None, ge=0, le=10**12, description="Р¦РµРЅР° РєР»РёРµРЅС‚Р° РІ СЂСѓР±Р»СЏС…")
+    useAI: Optional[bool] = Field(True, description="РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ AI РґР»СЏ Р°РЅР°Р»РёР·Р°")
+    numResults: Optional[int] = Field(5, ge=1, le=10, description="РљРѕР»РёС‡РµСЃС‚РІРѕ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ РґР»СЏ РїРѕРёСЃРєР°")
+    sessionId: Optional[str] = Field(None, min_length=8, max_length=128, description="ID СЃРµСЃСЃРёРё РґР»СЏ РїР°РјСЏС‚Рё")
+    userId: Optional[str] = Field(None, min_length=1, max_length=128, description="ID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ")
 
     @field_validator("text")
     @classmethod
     def validate_text(cls, v: str) -> str:
         if not v or not v.strip():
-            raise ValueError("Текст не может быть пустым")
+            raise ValueError("РўРµРєСЃС‚ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј")
         return v.strip()
 
 
@@ -201,6 +204,7 @@ class SessionMemoryResponse(BaseModel):
     session: dict
     summary: Optional[str] = None
     interactions: list[MemoryInteractionResponse] = Field(default_factory=list)
+    dataset_entries: list[dict] = Field(default_factory=list)
 
 
 class ClearMemoryResponse(BaseModel):
@@ -235,7 +239,7 @@ async def root() -> HTMLResponse:
     index_path = templates_dir / "index.html"
     if index_path.exists():
         return HTMLResponse(index_path.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>index.html не найден</h1>", status_code=404)
+    return HTMLResponse("<h1>index.html РЅРµ РЅР°Р№РґРµРЅ</h1>", status_code=404)
 
 
 @app.get("/health")
@@ -315,9 +319,15 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
             item_name=item_str,
         )
         memory_context = context.to_prompt_block() if context else None
+        logger.info(
+            "Memory context prepared for describe: session_id=%s item=%s context_present=%s",
+            session_id,
+            item_str,
+            bool(memory_context),
+        )
 
     logger.info(
-        "Запрос анализа: item=%s..., client_price=%s, use_ai=%s, num_results=%s",
+        "Р—Р°РїСЂРѕСЃ Р°РЅР°Р»РёР·Р°: item=%s..., client_price=%s, use_ai=%s, num_results=%s",
         item_str[:80],
         client_price,
         use_ai,
@@ -334,7 +344,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 memory_context=memory_context,
             )
         except OverflowError as exc:
-            logger.warning("Overflow в run_analysis: %s", exc)
+            logger.warning("Overflow РІ run_analysis: %s", exc)
             analysis = {
                 "item": item_str,
                 "offers_used": [],
@@ -345,7 +355,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                     "mean_price": None,
                     "client_price": client_price,
                     "client_price_ok": None,
-                    "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
+                    "explanation": "РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕСЃС‡РёС‚Р°С‚СЊ РґРёР°РїР°Р·РѕРЅ: РґР°РЅРЅС‹Рµ С†РµРЅ РЅРµРєРѕСЂСЂРµРєС‚РЅС‹.",
                 },
             }
 
@@ -355,6 +365,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 user_input=item_str,
                 result=analysis,
             )
+            logger.info("Memory saved after describe: session_id=%s item=%s", session_id, item_str)
 
         market_report = analysis.get("market_report") or {}
         offers_used = analysis.get("offers_used") or []
@@ -381,7 +392,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
 
         analogs_for_response = [
             AnalogDetail(
-                name=analog.get("name", "Аналог"),
+                name=analog.get("name", "РђРЅР°Р»РѕРі"),
                 avg_price_guess=analog.get("avg_price_guess"),
                 note=analog.get("note"),
                 pros=analog.get("pros", []),
@@ -460,18 +471,18 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
         )
 
     except ValueError as exc:
-        logger.error("Ошибка валидации: %s", exc)
+        logger.error("РћС€РёР±РєР° РІР°Р»РёРґР°С†РёРё: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Ошибка валидации входных данных: {str(exc)}",
+            detail=f"РћС€РёР±РєР° РІР°Р»РёРґР°С†РёРё РІС…РѕРґРЅС‹С… РґР°РЅРЅС‹С…: {str(exc)}",
         )
     except Exception as exc:
-        logger.error("Ошибка в /api/describe: %s", exc, exc_info=True)
-        error_message = str(exc)[:200] if os.getenv("DEBUG", "false").lower() == "true" else "Внутренняя ошибка сервера"
+        logger.error("РћС€РёР±РєР° РІ /api/describe: %s", exc, exc_info=True)
+        error_message = str(exc)[:200] if os.getenv("DEBUG", "false").lower() == "true" else "Р’РЅСѓС‚СЂРµРЅРЅСЏСЏ РѕС€РёР±РєР° СЃРµСЂРІРµСЂР°"
         return DescribeResponse(
-            category="Ошибка анализа",
+            category="РћС€РёР±РєР° Р°РЅР°Р»РёР·Р°",
             vendor=error_message[:100],
-            market_report=MarketReport(explanation="Ошибка при обработке запроса. Пожалуйста, попробуйте позже."),
+            market_report=MarketReport(explanation="РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ Р·Р°РїСЂРѕСЃР°. РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕРїСЂРѕР±СѓР№С‚Рµ РїРѕР·Р¶Рµ."),
         )
 
 
@@ -486,18 +497,18 @@ async def analyze_document_endpoint(
     userId: Optional[str] = Form(None),
 ) -> DocumentAnalyzeResponse:
     if not file.filename:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не указано имя файла.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="РќРµ СѓРєР°Р·Р°РЅРѕ РёРјСЏ С„Р°Р№Р»Р°.")
     if numResults < 1 or numResults > 10:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Количество результатов должно быть от 1 до 10.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="РљРѕР»РёС‡РµСЃС‚РІРѕ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РѕС‚ 1 РґРѕ 10.")
 
     content = await file.read()
     if not content:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Файл пустой.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Р¤Р°Р№Р» РїСѓСЃС‚РѕР№.")
     if len(content) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Размер файла превышает 15 МБ.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Р Р°Р·РјРµСЂ С„Р°Р№Р»Р° РїСЂРµРІС‹С€Р°РµС‚ 15 РњР‘.")
 
     logger.info(
-        "Запрос анализа документа: file=%s, size=%s bytes, use_ai=%s, num_results=%s",
+        "Р—Р°РїСЂРѕСЃ Р°РЅР°Р»РёР·Р° РґРѕРєСѓРјРµРЅС‚Р°: file=%s, size=%s bytes, use_ai=%s, num_results=%s",
         file.filename,
         len(content),
         useAI,
@@ -513,6 +524,12 @@ async def analyze_document_endpoint(
                 item_name=file.filename,
             )
             memory_context = context.to_prompt_block() if context else None
+            logger.info(
+                "Memory context prepared for document analysis: session_id=%s file=%s context_present=%s",
+                sessionId,
+                file.filename,
+                bool(memory_context),
+            )
 
         result = analyze_document(
             file_name=file.filename,
@@ -527,26 +544,27 @@ async def analyze_document_endpoint(
                 file_name=file.filename,
                 result=result,
             )
+            logger.info("Memory saved after document analysis: session_id=%s file=%s", sessionId, file.filename)
         return DocumentAnalyzeResponse(**result)
     except ValueError as exc:
-        logger.warning("Ошибка анализа документа %s: %s", file.filename, exc)
+        logger.warning("РћС€РёР±РєР° Р°РЅР°Р»РёР·Р° РґРѕРєСѓРјРµРЅС‚Р° %s: %s", file.filename, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except Exception as exc:
-        logger.error("Ошибка в /api/analyze-document: %s", exc, exc_info=True)
+        logger.error("РћС€РёР±РєР° РІ /api/analyze-document: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Внутренняя ошибка при анализе документа.",
+            detail="Р’РЅСѓС‚СЂРµРЅРЅСЏСЏ РѕС€РёР±РєР° РїСЂРё Р°РЅР°Р»РёР·Рµ РґРѕРєСѓРјРµРЅС‚Р°.",
         )
 
 
 def check_environment() -> None:
     warnings = []
     if not os.getenv("SERPER_API_KEY"):
-        warnings.append("⚠️  SERPER_API_KEY не установлен - поиск через Google может не работать")
+        warnings.append("вљ пёЏ  SERPER_API_KEY РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ - РїРѕРёСЃРє С‡РµСЂРµР· Google РјРѕР¶РµС‚ РЅРµ СЂР°Р±РѕС‚Р°С‚СЊ")
     if not os.getenv("GIGACHAT_AUTH_DATA"):
-        warnings.append("⚠️  GIGACHAT_AUTH_DATA не установлен - AI анализ может быть недоступен")
+        warnings.append("вљ пёЏ  GIGACHAT_AUTH_DATA РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ - AI Р°РЅР°Р»РёР· РјРѕР¶РµС‚ Р±С‹С‚СЊ РЅРµРґРѕСЃС‚СѓРїРµРЅ")
     if not os.getenv("PERPLEXITY_API_KEY"):
-        warnings.append("⚠️  PERPLEXITY_API_KEY не установлен - поиск аналогов через Sonar недоступен")
+        warnings.append("вљ пёЏ  PERPLEXITY_API_KEY РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ - РїРѕРёСЃРє Р°РЅР°Р»РѕРіРѕРІ С‡РµСЂРµР· Sonar РЅРµРґРѕСЃС‚СѓРїРµРЅ")
 
     if warnings:
         logger.warning("=" * 70)
@@ -554,13 +572,13 @@ def check_environment() -> None:
             logger.warning(warning)
         logger.warning("=" * 70)
     else:
-        logger.info("✅ Все критичные переменные окружения установлены")
+        logger.info("вњ… Р’СЃРµ РєСЂРёС‚РёС‡РЅС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ РѕРєСЂСѓР¶РµРЅРёСЏ СѓСЃС‚Р°РЅРѕРІР»РµРЅС‹")
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
     check_environment()
-    logger.info("🚀 API сервер запущен")
+    logger.info("рџљЂ API СЃРµСЂРІРµСЂ Р·Р°РїСѓС‰РµРЅ")
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ class MemoryContext:
     summary: Optional[str] = None
     recent_interactions: list[dict] = field(default_factory=list)
     relevant_facts: list[str] = field(default_factory=list)
+    dataset_entries: list[dict] = field(default_factory=list)
 
     def to_prompt_block(self) -> str:
         parts: list[str] = []
@@ -47,5 +48,13 @@ class MemoryContext:
                 for x in self.recent_interactions[:5]
             )
             parts.append(f"Recent interactions:\n{recent}")
+
+        if self.dataset_entries:
+            dataset_lines = "\n".join(
+                f"- [{entry.get('dataset_name', 'dataset')}/{entry.get('entry_type', 'entry')}] "
+                f"title={entry.get('title', '')[:80]} | content={entry.get('content', '')[:220]}"
+                for entry in self.dataset_entries[:10]
+            )
+            parts.append(f"Dataset memory:\n{dataset_lines}")
 
         return "\n\n".join(parts).strip()
