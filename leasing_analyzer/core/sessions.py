@@ -26,7 +26,7 @@ def build_no_retry_session(*, pool_connections: int, pool_maxsize: int) -> reque
 
 @lru_cache(maxsize=1)
 def get_http_session() -> requests.Session:
-    """Shared session for HTTP calls with connection pooling and retries."""
+    """Общая сессия для HTTP-вызовов с пулом соединений и повторами."""
     return build_retry_session(
         total_retries=3,
         pool_connections=20,
@@ -36,10 +36,10 @@ def get_http_session() -> requests.Session:
 
 @lru_cache(maxsize=1)
 def get_sonar_session() -> requests.Session:
-    """Dedicated Sonar session without adapter-level retries.
+    """Отдельная сессия для Sonar без повторов на уровне адаптера.
 
-    Sonar client already implements its own retry strategy and fallback logic,
-    so transport-level retries only make diagnostics noisier.
+    Клиент Sonar уже реализует собственную стратегию повторов и логику
+    запасных сценариев, поэтому транспортные повторы только засоряют диагностику.
     """
     return build_no_retry_session(
         pool_connections=10,

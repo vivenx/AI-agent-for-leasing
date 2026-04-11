@@ -14,7 +14,7 @@ from leasing_analyzer.core.utils import is_valid_url
 logger = get_logger(__name__)
 
 class SeleniumFetcher:
-    """Selenium-based page fetcher with lazy initialization and auto-recovery."""
+    """Загрузчик страниц на базе Selenium с ленивой инициализацией и автовосстановлением."""
     
     def __init__(self):
         self.driver: Optional[webdriver.Chrome] = None
@@ -22,7 +22,7 @@ class SeleniumFetcher:
         self._max_restart_attempts = 3
     
     def _get_options(self) -> Options:
-        """Get Chrome options (lazy initialization)."""
+        """Возвращает настройки Chrome с ленивой инициализацией."""
         if self._options is None:
             self._options = Options()
             self._options.add_argument("--headless=new")
@@ -40,7 +40,7 @@ class SeleniumFetcher:
         return self._options
 
     def _is_driver_alive(self) -> bool:
-        """Check if driver is still responsive."""
+        """Проверяет, отвечает ли драйвер."""
         if not self.driver:
             return False
         try:
@@ -53,25 +53,25 @@ class SeleniumFetcher:
             return False
     
     def _restart_driver(self):
-        """Restart driver after connection error."""
+        """Перезапускает драйвер после ошибки соединения."""
         logger.warning("Restarting Chrome driver due to connection issues...")
         self.close()
-        time.sleep(2)  # Give ChromeDriver time to fully close
-        self.driver = None  # Force recreation
+        time.sleep(2)  # Даем ChromeDriver полностью завершиться
+        self.driver = None  # Принудительно создадим новый экземпляр
     
     def _get_driver(self) -> webdriver.Chrome:
-        """Get or create Chrome driver with health check."""
+        """Возвращает существующий ChromeDriver или создает новый после проверки состояния."""
         if self.driver and self._is_driver_alive():
             return self.driver
         
-        # Driver is dead or doesn't exist, create new one
+        # Драйвер умер или отсутствует, создаем новый
         if self.driver:
             logger.warning("Driver is not responsive, recreating...")
             self.close()
         
         try:
             self.driver = webdriver.Chrome(options=self._get_options())
-            # Set timeouts
+            # Настраиваем таймауты
             self.driver.set_page_load_timeout(CONFIG.page_load_timeout)
             self.driver.implicitly_wait(CONFIG.implicit_wait)
             self.driver.set_script_timeout(CONFIG.script_timeout)
@@ -83,7 +83,7 @@ class SeleniumFetcher:
             raise
 
     def close(self):
-        """Close driver and release resources."""
+        """Закрывает драйвер и освобождает ресурсы."""
         if self.driver:
             service = getattr(self.driver, "service", None)
             process = getattr(service, "process", None)
@@ -104,7 +104,7 @@ class SeleniumFetcher:
         scroll_times: int = CONFIG.default_scroll_times,
         wait: float = CONFIG.scroll_wait
     ) -> Optional[str]:
-        """Fetch page with scrolling to load dynamic content, with auto-recovery."""
+        """Загружает страницу со скроллом для динамического контента и автовосстановлением."""
         if not is_valid_url(url):
             logger.warning(f"Invalid URL: {url}")
             return None
@@ -113,19 +113,19 @@ class SeleniumFetcher:
             try:
                 driver = self._get_driver()
                 
-                # Try to load page with timeout
+                # Пытаемся загрузить страницу с таймаутом
                 try:
                     driver.set_page_load_timeout(CONFIG.page_load_timeout)
                     driver.get(url)
                 except TimeoutException:
-                    # If page load times out, try to get what we have
+                    # Если загрузка превысила таймаут, пытаемся взять частичный контент
                     logger.warning(f"Page load timeout for {url}, trying to get partial content...")
                     try:
-                        # Try to get page source anyway
+                        # Пытаемся все равно получить HTML страницы
                         return driver.page_source
                     except Exception as e:
                         logger.debug(f"Could not get partial content: {e}")
-                        # Check if driver is still alive
+                        # Проверяем, жив ли драйвер
                         if not self._is_driver_alive():
                             logger.warning("Driver died after timeout, restarting...")
                             self._restart_driver()
@@ -133,7 +133,7 @@ class SeleniumFetcher:
                                 continue
                         return None
                 
-                # Scroll with timeout protection
+                # Скроллим страницу с защитой от зависаний
                 try:
                     last_height = driver.execute_script("return document.body.scrollHeight")
                     
@@ -147,25 +147,25 @@ class SeleniumFetcher:
                             last_height = new_height
                         except Exception as scroll_err:
                             logger.debug(f"Scroll error for {url}: {scroll_err}")
-                            # Check if driver is still alive
+                            # Проверяем, жив ли драйвер
                             if not self._is_driver_alive():
                                 logger.warning("Driver died during scroll, restarting...")
                                 self._restart_driver()
                                 if attempt < self._max_restart_attempts - 1:
-                                    break  # Break scroll loop, will retry fetch
+                                    break  # Прерываем цикл скролла и повторяем загрузку
                             else:
-                                break  # Just break scroll loop, continue with page source
+                                break  # Просто выходим из скролла и продолжаем с текущим HTML
                 except Exception as scroll_err:
                     logger.debug(f"Scroll failed for {url}: {scroll_err}")
-                    # Check if driver is still alive
+                    # Проверяем, жив ли драйвер
                     if not self._is_driver_alive():
                         logger.warning("Driver died during scroll, restarting...")
                         self._restart_driver()
                         if attempt < self._max_restart_attempts - 1:
                             continue
-                    # Continue anyway, we might have some content
+                    # Все равно продолжаем: часть контента уже могла загрузиться
                 
-                # Successfully got page source
+                # HTML успешно получен
                 try:
                     return driver.page_source
                 except Exception as e:
@@ -186,7 +186,7 @@ class SeleniumFetcher:
                 return None
             except Exception as e:
                 error_str = str(e).lower()
-                # Check for connection errors
+                # Проверяем ошибки соединения
                 if any(keyword in error_str for keyword in [
                     "connection", "winerror 10061", "refused", 
                     "newconnectionerror", "max retries exceeded"
@@ -194,18 +194,18 @@ class SeleniumFetcher:
                     logger.warning(f"Connection error loading {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
                         self._restart_driver()
-                        time.sleep(2)  # Wait longer for connection issues
+                        time.sleep(2)  # Для проблем соединения ждем чуть дольше
                         continue
                     return None
                 else:
                     logger.error(f"Failed to load {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
-                        # For other errors, still try restart once
+                        # Для прочих ошибок тоже пробуем один перезапуск
                         self._restart_driver()
                         time.sleep(1)
                         continue
                     return None
         
-        # All attempts failed
+        # Все попытки исчерпаны
         logger.error(f"Failed to load {url} after {self._max_restart_attempts} attempts")
         return None

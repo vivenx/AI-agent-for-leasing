@@ -14,7 +14,7 @@ from leasing_analyzer.core.utils import (
 
 
 def parse_page_basic(html_content: str, model_name: str) -> BasicParseResult:
-    """Extract basic structured data from HTML using regex."""
+    """Извлекает базовые структурированные данные из HTML с помощью regex."""
     result: BasicParseResult = {}
     if not html_content:
         return result
@@ -43,7 +43,7 @@ def parse_page_basic(html_content: str, model_name: str) -> BasicParseResult:
     if mileage:
         result["mileage"] = mileage
 
-    # Vendor heuristic from model name
+    # Эвристически определяем производителя из названия модели
     if model_name:
         result.setdefault("vendor", model_name.split()[0])
 

@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 from dataclasses import asdict
 
-# Core
+# Ядро
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.models import LeasingOffer, UserInput
 from leasing_analyzer.core.utils import (
@@ -13,12 +13,12 @@ from leasing_analyzer.core.utils import (
     ensure_list_str,
 )
 
-# Clients (AI / Sonar)
+# Клиенты (AI / Sonar)
 from leasing_analyzer.clients.gigachat import GigaChatClient
 from leasing_analyzer.clients.ai_analyzer import AIAnalyzer
 from leasing_analyzer.clients.sonar import get_sonar_finder
 
-# Services
+# Сервисы
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.search import search_and_analyze
 from leasing_analyzer.services.market import (
@@ -30,19 +30,19 @@ from leasing_analyzer.services.market import (
 )
 from leasing_analyzer.services.specs import extract_specs_from_multiple_sites
 
-# Parsing
+# Парсинг
 from leasing_analyzer.parsing.content_cleaner import ContentCleaner
 
 logger = logging.getLogger(__name__)
 
 
 def extract_model_from_query(query: str) -> str:
-    """Extract model name (first two words) from query."""
+    """Извлекает название модели из запроса по первым двум словам."""
     parts = query.split()
     return " ".join(parts[:2]) if parts else ""
 
 def get_user_input() -> UserInput:
-    """Get and validate user input."""
+    """Запрашивает и валидирует пользовательский ввод."""
     print("=" * 70)
     print("Leasing Asset Market Analyzer (Avito + AI)")
     print("=" * 70)
@@ -68,11 +68,13 @@ def get_user_input() -> UserInput:
     }
 
 def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
-    """Execute the main analysis pipeline."""
+    """Выполняет основной пайплайн анализа."""
     item = params["item"]
     client_price = params["client_price"]
     use_ai = params["use_ai"]
     num_results = params["num_results"]
+    memory_context = params.get("memory_context")
+
 
     fetcher = SeleniumFetcher()
     cleaner = ContentCleaner()
@@ -94,7 +96,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
     analyzer = None
     if use_ai and CONFIG.gigachat_auth_data:
         client = GigaChatClient(CONFIG.gigachat_auth_data)
-        analyzer = AIAnalyzer(client, cleaner)
+        analyzer = AIAnalyzer(client, cleaner, memory_context=memory_context)
 
     try:
         query = f"{item} {CONFIG.default_search_suffix}"
@@ -124,7 +126,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
             return [], {}
 
         # =============================
-        # ENRICH WITH SPECS FROM SPECIALIZED SITES
+        # ОБОГАЩЕНИЕ ХАРАКТЕРИСТИКАМИ ИЗ СПЕЦИАЛИЗИРОВАННЫХ САЙТОВ
         # =============================
         if use_ai and analyzer:
             logger.info("=" * 70)
@@ -161,11 +163,11 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
                     logger.info(f"Enriched {enriched_count} offers with technical specifications")
 
         # =============================
-        # INITIAL MARKET REPORT
+        # ПЕРВИЧНЫЙ РЫНОЧНЫЙ ОТЧЕТ
         # =============================
         report = analyze_market(item, offers, client_price, sonar_finder=sonar_finder)
 
-        # Validate with AI
+        # Проверяем отчет через AI
         if use_ai and analyzer and report.get("median_price"):
             logger.info("Validating report with AI...")
             validation = analyzer.validate_report(report)
@@ -177,7 +179,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
                 logger.info("AI confirmed report validity")
 
         # =============================
-        # DEEP ANALYSIS: Find best original offer
+        # ГЛУБОКИЙ АНАЛИЗ: поиск лучшего исходного предложения
         # =============================
         best_original_offer: Optional[LeasingOffer] = None
         best_original_analysis: dict = {}
@@ -202,7 +204,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
             report["best_original_analysis"] = {}
 
         # =============================
-        # ANALOG COLLECTION
+        # СБОР АНАЛОГОВ
         # =============================
         analogs, sonar_analog_details = collect_analogs(
             item_name=item,
@@ -306,7 +308,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
         report["analogs_details"] = analog_details
 
         # =============================
-        # DEEP ANALYSIS: Compare best original vs EACH analog
+        # ГЛУБОКИЙ АНАЛИЗ: сравнение лучшего исходного предложения с КАЖДЫМ аналогом
         # =============================
         comparisons: dict = {}
 
@@ -416,24 +418,27 @@ def run_analysis(
     client_price: int | None = None,
     use_ai: bool = True,
     num_results: int = 5,
+    memory_context: str | None = None,
 ) -> dict:
     """
-    API entry point for running analysis programmatically.
-    
-    Args:
-        item: Item to analyze (e.g., "BMW M5 2024")
-        client_price: Optional client's expected price
-        use_ai: Whether to use AI analysis
-        num_results: Number of search results to process
-    
-    Returns:
-        Dictionary with analysis results for the requested model only
+    Точка входа API для программного запуска анализа.
+
+    Аргументы:
+        item: Объект для анализа, например "BMW M5 2024"
+        client_price: Ожидаемая цена клиента, если она известна
+        use_ai: Использовать ли AI-анализ
+        num_results: Количество поисковых результатов для обработки
+
+    Возвращает:
+        Словарь с результатами анализа только для запрошенной модели
     """
     params: UserInput = {
         "item": item,
         "client_price": client_price,
         "use_ai": use_ai,
         "num_results": num_results,
+        "memory_context": memory_context,
+
     }
     
     offers, report = run_pipeline(params)

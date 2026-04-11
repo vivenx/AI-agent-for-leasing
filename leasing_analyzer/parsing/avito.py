@@ -19,7 +19,7 @@ from leasing_analyzer.parsing.helpers import create_offer_from_merged
 
 
 def is_relevant_avito_title(title: str, model_name: str) -> bool:
-    """Check if all model keywords are present in title."""
+    """Проверяет, присутствуют ли в заголовке все ключевые слова модели."""
     if not model_name:
         return True
     title_lower = title.lower()
@@ -27,7 +27,7 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
     return all(k in title_lower for k in keywords)
 
 def extract_offers_from_ld_json(html: str) -> list[dict]:
-    """Extract structured data from JSON-LD scripts."""
+    """Извлекает структурированные данные из JSON-LD скриптов."""
     offers = []
     soup = BeautifulSoup(html or "", "html.parser")
     scripts = soup.find_all("script", {"type": "application/ld+json"})
@@ -46,7 +46,7 @@ def extract_offers_from_ld_json(html: str) -> list[dict]:
                 item_type = ",".join(item_type)
             if "Offer" in item_type or "Product" in item_type:
                 offers.append(item)
-            # Some Avito pages embed LD inside "itemListElement"
+            # Некоторые страницы Avito вкладывают LD-данные в "itemListElement"
             if "itemListElement" in item and isinstance(item["itemListElement"], list):
                 for sub in item["itemListElement"]:
                     if isinstance(sub, dict) and "item" in sub and isinstance(sub["item"], dict):
@@ -55,7 +55,7 @@ def extract_offers_from_ld_json(html: str) -> list[dict]:
 
 
 def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
-    """Parse Avito listing page and extract offers."""
+    """Разбирает страницу списка Avito и извлекает предложения."""
     soup = BeautifulSoup(html or "", "html.parser")
     cards = soup.select('[data-marker="item"]')
     if not cards:
@@ -90,7 +90,7 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         power = _extract_power(subtitle)
         mileage = _extract_mileage(subtitle)
         
-        # Create merged dict for validation
+        # Формируем объединенный словарь для валидации
         merged_data = {
             "price": price_val,
             "year": year,
@@ -99,7 +99,7 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
             "location": location,
         }
         
-        # Validate and create offer using improved function
+        # Валидируем и создаем предложение через улучшенную функцию
         offer = create_offer_from_merged(
             title=title,
             url=url,
@@ -112,7 +112,7 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         if offer:
             offers.append(offer)
 
-    # JSON-LD as supplemental source
+    # JSON-LD как дополнительный источник
     for item in extract_offers_from_ld_json(html):
         name = normalize_whitespace(item.get("name", "") or item.get("title", ""))
         href = item.get("url") or item.get("mainEntityOfPage") or ""

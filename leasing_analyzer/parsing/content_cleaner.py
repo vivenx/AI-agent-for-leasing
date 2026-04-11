@@ -6,12 +6,12 @@ from leasing_analyzer.core.config import CONFIG
 
 
 class ContentCleaner:
-    """Cleans HTML content for AI processing."""
+    """Очищает HTML-контент для последующей обработки AI."""
     
     TAGS_TO_REMOVE = ["script", "style", "nav", "footer", "header", "iframe", "noscript", "aside"]
     
     def clean(self, html_content: str, max_length: int = CONFIG.max_content_length) -> str:
-        """Remove non-content tags and extract text."""
+        """Удаляет служебные теги и извлекает текст."""
         if not html_content:
             return ""
         soup = BeautifulSoup(html_content, "html.parser")

@@ -12,7 +12,7 @@ from leasing_analyzer.core.utils import format_price
 logger = get_logger(__name__)
 
 def print_offer(idx: int, o: LeasingOffer):
-    """Print single offer details."""
+    """Печатает детали одного предложения."""
     print(f"\n[{idx}] {o.title}")
     print(f"    Source: {o.source}")
     print(f"    Model: {o.model}")
@@ -69,7 +69,7 @@ def print_offer(idx: int, o: LeasingOffer):
 
 
 def print_results(offers: list[LeasingOffer]):
-    """Print all results."""
+    """Печатает все результаты."""
     print("\n" + "=" * 70)
     print(f"Found offers: {len(offers)}")
     print("=" * 70)
@@ -78,7 +78,7 @@ def print_results(offers: list[LeasingOffer]):
 
 
 def print_analog_details(analog_details: list[dict]):
-    """Print analog comparison details."""
+    """Печатает детали сравнения аналогов."""
     print("\nAnalog comparison:")
     for a in analog_details:
         p_est = a.get("avg_price_guess")
@@ -91,7 +91,7 @@ def print_analog_details(analog_details: list[dict]):
         if a['cons']:
             print(f"  [-] {', '.join(a['cons'])}")
         
-        # Print sources
+        # Печатаем источники
         print("  Sources:")
         printed_links = set()
         if a.get("best_link"):
@@ -105,7 +105,7 @@ def print_analog_details(analog_details: list[dict]):
                     print(f"    {l.get('title', 'Link')}: {lnk}")
 
 def print_best_offer_analysis(best_offer: Optional[LeasingOffer], analysis: dict, item_name: str):
-    """Print analysis of the best offer."""
+    """Печатает анализ лучшего предложения."""
     if not best_offer:
         return
     
@@ -135,7 +135,7 @@ def print_best_offer_analysis(best_offer: Optional[LeasingOffer], analysis: dict
     ranking = analysis.get("ranking", [])
     if ranking and len(ranking) > 1:
         print(f"\n   📊 Ranking of all offers:")
-        for rank in ranking[:5]:  # Top 5
+        for rank in ranking[:5]:  # Топ-5
             idx = rank.get("index", 0)
             score_r = rank.get("score", 0)
             brief = rank.get("brief_reason", "")
@@ -143,7 +143,7 @@ def print_best_offer_analysis(best_offer: Optional[LeasingOffer], analysis: dict
 
 
 def print_best_offers_comparison(comparisons: dict, original_name: str):
-    """Print comparison between best original and best analog offers."""
+    """Печатает сравнение лучшего исходного предложения с лучшими аналогами."""
     if not comparisons:
         return
     
@@ -166,7 +166,7 @@ def print_best_offers_comparison(comparisons: dict, original_name: str):
         else:
             print(f"🏆 Winner: ANALOG ({analog_score:.1f}/10 vs {orig_score:.1f}/10)")
         
-        # Price comparison
+        # Сравнение цен
         price_comp = comparison.get("price_comparison", {})
         if price_comp:
             orig_price = price_comp.get("original_price")
@@ -180,7 +180,7 @@ def print_best_offers_comparison(comparisons: dict, original_name: str):
             if diff != 0:
                 print(f"   Difference: {diff:+.1f}% ({verdict})")
         
-        # Pros and cons
+        # Плюсы и минусы
         pros_orig = comparison.get("pros_original", [])
         cons_orig = comparison.get("cons_original", [])
         pros_analog = comparison.get("pros_analog", [])
@@ -206,13 +206,13 @@ def print_best_offers_comparison(comparisons: dict, original_name: str):
             for c in cons_analog[:3]:
                 print(f"   - {c}")
         
-        # Recommendation
+        # Рекомендация
         recommendation = comparison.get("recommendation", "")
         if recommendation:
             print(f"\n💡 Recommendation:")
             print(f"   {recommendation}")
         
-        # Use cases
+        # Сценарии использования
         use_cases_orig = comparison.get("use_cases_original", [])
         use_cases_analog = comparison.get("use_cases_analog", [])
         
@@ -228,7 +228,7 @@ def print_best_offers_comparison(comparisons: dict, original_name: str):
 
 
 def print_final_report(report: dict, client_price: Optional[int]):
-    """Print final market report."""
+    """Печатает итоговый рыночный отчет."""
     print("\n" + "=" * 70)
     print("FINAL REPORT")
     print("=" * 70)
@@ -247,12 +247,12 @@ def print_final_report(report: dict, client_price: Optional[int]):
     if report.get("ai_flag"):
         print(f"WARNING: {report.get('ai_comment')}")
     
-    # Print best original offer analysis
+    # Печатаем анализ лучшего исходного предложения
     best_original = report.get("best_original_offer")
     best_original_analysis = report.get("best_original_analysis", {})
     if best_original:
         item_name = report.get("item", "Unknown")
-        # Convert dict to LeasingOffer if needed
+        # При необходимости превращаем dict в LeasingOffer
         if isinstance(best_original, dict):
             best_offer_obj = LeasingOffer(**best_original)
         else:
@@ -260,7 +260,7 @@ def print_final_report(report: dict, client_price: Optional[int]):
         print_best_offer_analysis(best_offer_obj, best_original_analysis, item_name)
     
 def save_results_json(offers: list[LeasingOffer], item_name: str = "results", market_report: Optional[dict] = None):
-    """Save results to JSON file."""
+    """Сохраняет результаты в JSON-файл."""
     safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in item_name)
     filename = f"{safe_name}.json"
     data = {"offers": [asdict(o) for o in offers]}

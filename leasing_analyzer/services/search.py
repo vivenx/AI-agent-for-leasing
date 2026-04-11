@@ -40,7 +40,7 @@ _requests_session = get_http_session()
 
 
 def extract_model_from_query(query: str) -> str:
-    """Extract model name from a free-form search query."""
+    """Извлекает название модели из произвольного поискового запроса."""
     parts = (query or "").split()
     return " ".join(parts[:2]) if parts else ""
 
@@ -49,7 +49,7 @@ def filter_offers_by_requested_year(
     offers: list[LeasingOffer],
     requested_year: Optional[int],
 ) -> list[LeasingOffer]:
-    """Prefer offers matching the requested year without dropping all results."""
+    """Отдает приоритет предложениям нужного года, не отбрасывая все результаты."""
     if requested_year is None:
         return offers
 
@@ -66,7 +66,7 @@ def filter_offers_by_requested_year(
     retry=retry_if_exception_type(requests.RequestException)
 )
 def _search_google_request(query: str, num_results: int) -> list[SearchResult]:
-    """Make search request to Serper API (with retry and rate limiting)."""
+    """Выполняет поисковый запрос к Serper API с повторами и лимитированием."""
     google_rate_limiter.wait_if_needed()
     resp = _requests_session.post(
         "https://google.serper.dev/search",
@@ -80,7 +80,7 @@ def _search_google_request(query: str, num_results: int) -> list[SearchResult]:
 
 @lru_cache(maxsize=100)
 def search_google_cached(query: str, num_results: int = 10) -> tuple:
-    """Cached Google search via Serper API."""
+    """Кешированный поиск Google через Serper API."""
     if not CONFIG.serper_api_key:
         logger.warning("SERPER_API_KEY not set")
         return tuple()
@@ -93,7 +93,7 @@ def search_google_cached(query: str, num_results: int = 10) -> tuple:
 
 
 def search_google(query: str, num_results: int = 10) -> list[dict]:
-    """Google search via Serper API (returns list for compatibility)."""
+    """Поиск Google через Serper API с возвратом списка для совместимости."""
     if not CONFIG.serper_api_key:
         logger.warning("SERPER_API_KEY not set, skipping Google search")
         return []
@@ -119,7 +119,7 @@ MANDATORY_SOURCES = [
 ]
 
 def generate_mandatory_urls(model_name: str) -> list[dict]:
-    """Generate URLs for mandatory leasing sources."""
+    """Генерирует URL для обязательных лизинговых источников."""
     query_encoded = model_name.replace(" ", "+").lower()
     mandatory = []
     for source in MANDATORY_SOURCES:
@@ -134,7 +134,7 @@ def generate_mandatory_urls(model_name: str) -> list[dict]:
 
 
 def filter_search_results(results: list[dict], max_results: int = 10) -> list[dict]:
-    """Filter search results, removing blocked domains."""
+    """Фильтрует поисковые результаты, удаляя заблокированные домены."""
     filtered = []
     blocked_domains = {"chelindleasing"}
     
@@ -150,7 +150,7 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
 
 
 def merge_with_mandatory(search_results: list[dict], mandatory: list[dict]) -> list[dict]:
-    """Merge search results with mandatory sources."""
+    """Объединяет результаты поиска с обязательными источниками."""
     existing_domains = {urlparse(r.get("link", "")).netloc.replace("www.", "") for r in search_results}
     merged = []
     
@@ -170,7 +170,7 @@ def _process_single_url(
     idx: int,
     total: int
 ) -> list[LeasingOffer]:
-    """Process a single URL and return offers."""
+    """Обрабатывает один URL и возвращает найденные предложения."""
     url = result.get("link", "")
     title = result.get("title", "")
     
@@ -181,7 +181,7 @@ def _process_single_url(
     domain = urlparse(url).netloc.replace("www.", "")
     logger.debug(f"[{idx}/{total}] Processing {domain} | {url}")
     
-    # Fetch page
+    # Загружаем страницу
     is_avito = CONFIG.avito_domain in domain
     scroll_times = CONFIG.avito_scroll_times if is_avito else CONFIG.other_scroll_times
     html = fetcher.fetch_page(url, scroll_times=scroll_times, wait=CONFIG.scroll_wait)
@@ -190,7 +190,7 @@ def _process_single_url(
         logger.debug(f"[{idx}/{total}] Failed to load {url}")
         return []
     
-    # Parse using strategy
+    # Разбираем страницу выбранной стратегией
     try:
         offers = parser.parse(html, url, model_name, title)
         if offers:
@@ -209,7 +209,7 @@ def search_and_analyze(
     use_ai: bool = True,
     item_name: Optional[str] = None,
 ) -> list[LeasingOffer]:
-    """Main search and analysis pipeline with parallel processing."""
+    """Основной поисковый пайплайн с параллельной обработкой."""
     logger.info("=" * 70)
     logger.info(f"Search query: {query}")
     logger.info("=" * 70)
@@ -241,13 +241,13 @@ def search_and_analyze(
         logger.warning("No URLs to process")
         return []
 
-    # Create parser strategies
+    # Создаем стратегии парсинга
     avito_parser = AvitoParserStrategy()
     generic_parser = GenericParserStrategy(analyzer, use_ai)
 
     offers: list[LeasingOffer] = []
     
-    # Process URLs in parallel
+    # Обрабатываем URL параллельно
     with ThreadPoolExecutor(max_workers=CONFIG.max_workers) as executor:
         futures = {}
         
@@ -256,10 +256,10 @@ def search_and_analyze(
             domain = urlparse(url).netloc.replace("www.", "")
             is_avito = CONFIG.avito_domain in domain
             
-            # Choose parser strategy
+            # Выбираем стратегию парсинга
             parser = avito_parser if is_avito else generic_parser
             
-            # Submit task
+            # Отправляем задачу в пул
             future = executor.submit(
                 _process_single_url,
                 result,
@@ -271,7 +271,7 @@ def search_and_analyze(
             )
             futures[future] = (idx, url)
         
-        # Collect results with progress bar
+        # Собираем результаты с прогресс-баром
         with tqdm(total=len(futures), desc="Processing URLs", unit="url") as pbar:
             for future in as_completed(futures):
                 idx, url = futures[future]
@@ -283,8 +283,8 @@ def search_and_analyze(
                 finally:
                     pbar.update(1)
 
-    # Deduplicate and filter outliers
-    # Apply filters in order: quality -> deduplication -> outliers
+    # Удаляем дубликаты и отфильтровываем выбросы
+    # Порядок фильтров: качество -> дедупликация -> год -> выбросы
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)

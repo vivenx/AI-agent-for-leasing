@@ -12,39 +12,39 @@ from leasing_analyzer.parsing.helpers import create_offer_from_merged
 
 
 class ParserStrategy(ABC):
-    """Abstract base class for parsing strategies."""
+    """Абстрактный базовый класс для стратегий парсинга."""
     
     @abstractmethod
     def parse(self, html: str, url: str, model_name: str, title: str = "") -> list["LeasingOffer"]:
-        """Parse HTML and return list of offers."""
+        """Разбирает HTML и возвращает список предложений."""
         pass
 
 
 class AvitoParserStrategy(ParserStrategy):
-    """Parser for Avito listing pages."""
+    """Парсер страниц со списком объявлений Avito."""
     
     def parse(self, html: str, url: str, model_name: str, title: str = "") -> list["LeasingOffer"]:
-        """Parse Avito list page."""
+        """Разбирает страницу списка Avito."""
         return parse_avito_list_page(html, model_name)
     
 class GenericParserStrategy(ParserStrategy):
-    """Generic parser using basic regex + AI."""
+    """Универсальный парсер на основе базовых regex и AI."""
     
     def __init__(self, analyzer: Optional[AIAnalyzer], use_ai: bool = True):
         self.analyzer = analyzer
         self.use_ai = use_ai
     
     def parse(self, html: str, url: str, model_name: str, title: str = "") -> list["LeasingOffer"]:
-        """Parse generic page using basic + AI parsing."""
-        # Basic parsing
+        """Разбирает обычную страницу с помощью базового и AI-парсинга."""
+        # Базовый парсинг
         basic = parse_page_basic(html, model_name)
         
-        # AI parsing
+        # AI-парсинг
         ai_result = None
         if self.use_ai and self.analyzer:
             ai_result = self.analyzer.analyze_content(html)
         
-        # Merge results
+        # Объединяем результаты
         merged = dict(basic)
         if ai_result:
             for k, v in ai_result.items():
@@ -54,7 +54,7 @@ class GenericParserStrategy(ParserStrategy):
         if not merged:
             return []
         
-        # Create offer with enrichment
+        # Создаем предложение с обогащением
         domain = urlparse(url).netloc.replace("www.", "")
         offer = create_offer_from_merged(
             title=title or "Offer",
@@ -62,7 +62,7 @@ class GenericParserStrategy(ParserStrategy):
             domain=domain,
             model_name=model_name,
             merged=merged,
-            text=html[:5000] if html else ""  # Pass first 5000 chars for enrichment
+            text=html[:5000] if html else ""  # Передаем первые 5000 символов для обогащения
         )
         
         if offer and offer.has_data():

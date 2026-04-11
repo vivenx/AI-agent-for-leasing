@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 
 def percentile(sorted_values: list[int], p: float) -> float:
-    """Calculate percentile from sorted values (safe for large integers)."""
+    """Вычисляет перцентиль по отсортированным значениям безопасно для больших чисел."""
     if not sorted_values:
         return 0.0
     try:
@@ -30,21 +30,21 @@ def percentile(sorted_values: list[int], p: float) -> float:
         c = min(f + 1, len(sorted_values) - 1)
         if f == c:
             val = sorted_values[int(k)]
-            # Safe conversion: if value is too large, return as is
+            # Безопасное преобразование: если число слишком большое, возвращаем как есть
             try:
                 return float(val)
             except OverflowError:
-                # For very large numbers, return the integer value as float representation
+                # Для очень больших чисел возвращаем строковое представление как float
                 return float(str(val))
         
-        # Calculate weighted average
+        # Вычисляем взвешенное среднее
         d0 = sorted_values[f] * (c - k)
         d1 = sorted_values[c] * (k - f)
         result = d0 + d1
         try:
             return float(result)
         except OverflowError:
-            # Fallback: use simple average
+            # Запасной вариант: используем простое среднее
             return float((sorted_values[f] + sorted_values[c]) / 2)
     except (OverflowError, ValueError) as e:
         logger.warning(f"Error calculating percentile: {e}, using middle value")
@@ -52,7 +52,7 @@ def percentile(sorted_values: list[int], p: float) -> float:
         return float(sorted_values[mid_idx] if len(sorted_values) % 2 == 1 else (sorted_values[mid_idx - 1] + sorted_values[mid_idx]) / 2)
 
 def filter_price_outliers(offers: list[LeasingOffer]) -> list[LeasingOffer]:
-    """Remove price outliers using IQR method."""
+    """Удаляет ценовые выбросы методом IQR."""
     prices = [o.price for o in offers if o.price is not None]
     if len(prices) < CONFIG.outlier_min_samples:
         return offers
@@ -72,7 +72,7 @@ def filter_price_outliers(offers: list[LeasingOffer]) -> list[LeasingOffer]:
 
 
 def filter_low_quality_offers(offers: list[LeasingOffer]) -> list[LeasingOffer]:
-    """Filter out low-quality offers (missing critical data, suspicious content)."""
+    """Фильтрует низкокачественные предложения с подозрительными или неполными данными."""
     if not offers:
         return []
     
@@ -80,25 +80,25 @@ def filter_low_quality_offers(offers: list[LeasingOffer]) -> list[LeasingOffer]:
     removed = 0
     
     for offer in offers:
-        # Skip offers with suspiciously short titles
+        # Пропускаем предложения со слишком короткими заголовками
         if len(offer.title.strip()) < 5:
             logger.debug(f"Removing offer with too short title: {offer.title[:30]}")
             removed += 1
             continue
         
-        # Skip offers with invalid URLs
+        # Пропускаем предложения с невалидными URL
         if not is_valid_url(offer.url):
             logger.debug(f"Removing offer with invalid URL: {offer.url}")
             removed += 1
             continue
         
-        # Skip offers with suspicious prices (too small for leasing)
+        # Пропускаем предложения с подозрительно низкой ценой
         if offer.price is not None and offer.price < CONFIG.min_valid_price:
             logger.debug(f"Removing offer with suspiciously low price: {offer.price}")
             removed += 1
             continue
         
-        # Keep offers that have at least some meaningful data
+        # Оставляем предложения, где есть хоть какие-то полезные данные
         has_meaningful_data = any([
             offer.price is not None,
             offer.monthly_payment is not None,
@@ -128,26 +128,26 @@ def collect_analogs(
     sonar_finder: Optional[SonarAnalogFinder] = None
 ) -> tuple[list[str], list[SonarAnalogResult]]:
     """
-    Collect analog models using Sonar as PRIMARY method.
-    Sonar always returns exactly 3 analogs.
-    
-    Returns:
-        Tuple of (analog_names, sonar_details)
-        - analog_names: List of 3 analog names (from Sonar)
-        - sonar_details: Detailed info from Sonar
+    Собирает модели-аналоги, используя Sonar как основной метод.
+    Sonar стремится вернуть ровно 3 аналога.
+
+    Возвращает:
+        Кортеж `(analog_names, sonar_details)`,
+        где `analog_names` — список названий аналогов,
+        а `sonar_details` — детальная информация от Sonar.
     """
     from leasing_analyzer.services.search import search_google
 
     sonar_details: list[SonarAnalogResult] = []
     
-    # Check cache first
+    # Сначала проверяем кеш
     cached_analogs = get_cached_sonar_analogs(item_name)
     if cached_analogs:
         logger.info(f"[SONAR] Using cached analogs for '{item_name}'")
         analog_names = [a["name"] for a in cached_analogs if a.get("name")]
         return analog_names[:3], cached_analogs[:3]
     
-    # PRIMARY: Always use Sonar for analogs (if available)
+    # ОСНОВНОЙ ПУТЬ: используем Sonar для поиска аналогов, если он доступен
     if sonar_finder and sonar_finder.is_available():
         logger.info("=" * 70)
         logger.info("[SONAR] PRIMARY METHOD: Searching for analogs using Perplexity Sonar API")
@@ -160,9 +160,9 @@ def collect_analogs(
                 if analog_names:
                     logger.info(f"[SONAR] Successfully found {len(analog_names)} analogs via Sonar")
                     logger.info(f"[SONAR] Analogs: {', '.join(analog_names)}")
-                    # Cache the results
+                    # Сохраняем результаты в кеш
                     cache_sonar_analogs(item_name, sonar_details[:3])
-                    # Return exactly 3 (or as many as we have)
+                    # Возвращаем ровно 3 аналога, либо меньше если нашли меньше
                     return analog_names[:3], sonar_details[:3]
                 else:
                     logger.warning("[SONAR] Sonar returned results but no valid analog names")
@@ -179,23 +179,23 @@ def collect_analogs(
         logger.warning("=" * 70)
         sonar_details = []
     
-    # FALLBACK: Only if Sonar is not available or failed
+    # РЕЗЕРВНЫЙ ПУТЬ: только если Sonar недоступен или завершился ошибкой
     logger.info("[FALLBACK] Using fallback methods for analog search...")
     analogs_set = set()
     
-    # Collect from offers
+    # Собираем аналоги из самих предложений
     for o in offers:
         for a in o.analogs:
             analogs_set.add(a.strip())
     
-    # GigaChat suggestion
+    # Добавляем предложения от GigaChat
     if len(analogs_set) < 3 and use_ai and analyzer:
         logger.info("[FALLBACK] Using GigaChat for analog suggestions...")
         ai_analogs = analyzer.suggest_analogs(item_name)
         for a in ai_analogs:
             analogs_set.add(a)
 
-    # Google search
+    # Дособираем аналоги через Google
     if len(analogs_set) < 3:
         logger.info("[FALLBACK] Using Google search for analogs...")
         fallback_results = search_google(f"{item_name} аналог", 5)
@@ -207,14 +207,14 @@ def collect_analogs(
                 if candidate and len(candidate.split()) <= 6:
                     analogs_set.add(candidate)
 
-    # Return exactly 3 analogs (or less if not found)
+    # Возвращаем ровно 3 аналога, либо меньше если не нашли
     analog_names = [a for a in analogs_set if a][:3]
     logger.info(f"[FALLBACK] Found {len(analog_names)} analogs via fallback methods")
     return analog_names, sonar_details
 
 
 def fetch_listing_summaries(query: str, top_n: int = 3) -> list[ListingSummary]:
-    """Fetch brief listing summaries for analog comparison."""
+    """Получает краткие сводки объявлений для сравнения аналогов."""
     from leasing_analyzer.services.search import search_google
 
     results = search_google(query, num_results=top_n)
@@ -238,7 +238,7 @@ def analyze_market(
     client_price: Optional[int],
     sonar_finder: Optional[SonarAnalogFinder] = None
 ) -> dict:
-    """Perform market analysis on collected offers."""
+    """Выполняет рыночный анализ по собранным предложениям."""
     prices = [o.price for o in offers if o.price is not None]
     
     result = {
@@ -260,28 +260,28 @@ def analyze_market(
     prices_sorted = sorted(prices)
     min_p, max_p = prices_sorted[0], prices_sorted[-1]
     
-    # Safe calculation of median and mean to avoid OverflowError
+    # Безопасно считаем медиану и среднее, чтобы избежать OverflowError
     try:
         median_p = statistics.median(prices_sorted)
-        # Convert to int if it's a whole number to avoid float precision issues
+        # Преобразуем в int, если число целое, чтобы избежать проблем с точностью float
         if isinstance(median_p, float) and median_p.is_integer():
             median_p = int(median_p)
     except (OverflowError, ValueError) as e:
         logger.warning(f"Error calculating median: {e}, using middle value")
-        # Fallback: use middle value
+        # Запасной вариант: берем средний элемент
         mid_idx = len(prices_sorted) // 2
         median_p = prices_sorted[mid_idx] if len(prices_sorted) % 2 == 1 else (prices_sorted[mid_idx - 1] + prices_sorted[mid_idx]) // 2
     
     try:
-        # Calculate mean safely
+        # Безопасно считаем среднее
         total = sum(prices_sorted)
         count = len(prices_sorted)
         if count > 0:
-            mean_p = total // count  # Use integer division to avoid float
-            # If we need more precision, calculate remainder
+            mean_p = total // count  # Используем целочисленное деление, чтобы не ловить проблемы float
+            # Если нужна большая точность, учитываем остаток
             remainder = total % count
             if remainder > 0:
-                # Round to nearest integer
+                # Округляем до ближайшего целого
                 mean_p = round(total / count) if total < 10**15 else mean_p
         else:
             mean_p = 0
@@ -290,7 +290,7 @@ def analyze_market(
         mean_p = median_p if isinstance(median_p, (int, float)) else 0
 
     result["market_range"] = [min_p, max_p]
-    # Safe conversion to float
+    # Безопасно приводим медиану к float
     try:
         if isinstance(median_p, int):
             result["median_price"] = float(median_p) if median_p < 10**15 else median_p
@@ -370,11 +370,11 @@ def find_best_offer_from_list(
     sonar_finder: Optional[SonarAnalogFinder] = None
 ) -> tuple[Optional[LeasingOffer], dict]:
     """
-    Find the best offer from a list by comparing all offers with each other.
-    Использует ТОЛЬКО Sonar API - без fallback методов.
-    
-    Returns:
-        Tuple of (best_offer, comparison_result)
+    Находит лучшее предложение в списке, сравнивая предложения между собой.
+    Использует только Sonar API, без запасных методов.
+
+    Возвращает:
+        Кортеж `(best_offer, comparison_result)`.
     """
     if not offers:
         return None, {}
@@ -382,13 +382,13 @@ def find_best_offer_from_list(
     if len(offers) == 1:
         return offers[0], {"best_index": 0, "best_score": 8.0, "reason": "Only one offer", "sonar_used": False}
     
-    # Convert offers to dict format
+    # Переводим предложения в формат словарей
     offers_dict = [asdict(o) for o in offers]
     
-    # ONLY Sonar - no fallback
+    # Только Sonar, без fallback-ветки
     if not use_ai or not sonar_finder or not sonar_finder.is_available():
         logger.error("[SONAR] Sonar not available - cannot find best offer without Sonar")
-        # Return first offer as fallback (simple fallback, not AI-based)
+        # В крайнем случае возвращаем первое предложение
         return offers[0], {"best_index": 0, "best_score": 5.0, "reason": "Sonar unavailable - using first offer", "sonar_used": False}
     
     logger.info(f"[SONAR] Finding best offer from {len(offers)} offers using Sonar (ONLY METHOD)...")
@@ -415,16 +415,16 @@ def find_best_offer_from_list(
 
 def compare_best_offers_original_vs_analogs(
     best_original: Optional[LeasingOffer],
-    best_analogs: list[tuple[str, Optional[LeasingOffer]]],  # [(analog_name, best_offer), ...]
+    best_analogs: list[tuple[str, Optional[LeasingOffer]]],  # [(название_аналога, лучшее_предложение), ...]
     original_name: str,
     analyzer: Optional[AIAnalyzer],
     use_ai: bool
 ) -> dict:
     """
-    Compare best original offer with best analog offers.
-    
-    Returns:
-        Dictionary with comparison results for each analog
+    Сравнивает лучшее исходное предложение с лучшими предложениями аналогов.
+
+    Возвращает:
+        Словарь с результатами сравнения для каждого аналога.
     """
     if not best_original:
         return {}
@@ -439,7 +439,7 @@ def compare_best_offers_original_vs_analogs(
             continue
         
         if not use_ai or not analyzer:
-            # Simple price comparison
+            # Простое сравнение по цене
             orig_price = best_original.price or 0
             analog_price = best_analog.price or 0
             if orig_price and analog_price:
@@ -468,7 +468,7 @@ def compare_best_offers_original_vs_analogs(
             analog_name=analog_name
         )
         
-        # Add URLs to comparison result
+        # Добавляем URL в результат сравнения
         if comparison:
             comparison["original_url"] = best_original.url
             comparison["analog_url"] = best_analog.url

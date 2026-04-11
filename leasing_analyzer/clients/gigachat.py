@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 
 class GigaChatClient:
-    """Client for GigaChat API with token management and retry logic."""
+    """Клиент для GigaChat API с управлением токеном и логикой повторов."""
 
     def __init__(self, auth_data: str):
         self.auth_data = auth_data
@@ -27,7 +27,7 @@ class GigaChatClient:
         self._token_expires_at: float = 0
 
     def _get_token(self) -> Optional[str]:
-        """Get or refresh access token."""
+        """Получает или обновляет токен доступа."""
         now = time.time()
 
         if self._access_token and now < self._token_expires_at:
@@ -75,7 +75,7 @@ class GigaChatClient:
         temperature: float = 0.1,
         max_tokens: int = 500,
     ) -> Optional[dict]:
-        """Send chat request to GigaChat and return parsed JSON."""
+        """Отправляет chat-запрос в GigaChat и возвращает разобранный JSON."""
 
         token = self._get_token()
         if not token:

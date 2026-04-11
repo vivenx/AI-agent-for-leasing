@@ -223,15 +223,15 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
 
 
 def _extract_year_from_text(text: str) -> Optional[int]:
-    """Backward-compatible alias for older parser modules."""
+    """Алиас для обратной совместимости со старыми модулями парсинга."""
     return extract_year_from_text(text)
 
 
 def _extract_power(text: str) -> Optional[str]:
-    """Backward-compatible alias for older parser modules."""
+    """Алиас для обратной совместимости со старыми модулями парсинга."""
     return extract_power(text)
 
 
 def _extract_mileage(text: str) -> Optional[str]:
-    """Backward-compatible alias for older parser modules."""
+    """Алиас для обратной совместимости со старыми модулями парсинга."""
     return extract_mileage(text)
