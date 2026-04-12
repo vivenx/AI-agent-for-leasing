@@ -36,18 +36,37 @@ const elements = {
   warningsSection: byId("warningsSection"),
   warningsList: byId("warningsList"),
   sourcesList: byId("sourcesList"),
+  uiFilters: byId("ui-filters"),
+  filterMaxPrice: byId("filterMaxPrice"),
+  filterYear: byId("filterYear"),
 };
 
+let allSources = []; // Сюда будем сохранять оригинальный список объявлений
 let currentMode = "manual";
 let abortController = null;
 let timeoutId = null;
 let requestTimedOut = false;
+
+
+function applyFilters() {
+  const maxPrice = parseFloat(elements.filterMaxPrice?.value) || Infinity;
+  const selectedYear = elements.filterYear?.value;
+
+  const filtered = allSources.filter(source => {
+    const priceMatch = (source.price || 0) <= maxPrice;
+    const yearMatch = selectedYear === "all" || String(source.year) === selectedYear;
+    return priceMatch && yearMatch;
+  });
+
+  renderSources(filtered, false); // Перерисовываем список (false - чтобы не сбрасывать фильтры снова)
+}
 
 function init() {
   bindModeToggle();
   bindAiToggle();
   bindFileInput();
   bindForm();
+  bindFilters();
   setMode("manual");
 }
 
@@ -135,6 +154,14 @@ function bindForm() {
 
     await submitDocument();
   });
+}
+
+function bindFilters() {
+  // Добавляем слушатель на ввод цены (сработает сразу, как начнешь печатать)
+  elements.filterMaxPrice?.addEventListener("input", applyFilters);
+  
+  // Добавляем слушатель на выбор года
+  elements.filterYear?.addEventListener("change", applyFilters);
 }
 
 function setMode(mode) {
@@ -386,7 +413,12 @@ function renderDetails(container, data, emptyText) {
     .join("");
 }
 
-function renderSources(sources) {
+function renderSources(sources, setupFilters = true) {
+  if (setupFilters) {
+    allSources = sources; // Сохраняем оригинал при первом получении
+    setupYearFilter(sources);
+  }
+
   if (!sources.length) {
     elements.sourcesList.innerHTML = '<div class="empty-note">Источники не найдены</div>';
     return;
@@ -412,6 +444,35 @@ function renderSources(sources) {
       `;
     })
     .join("");
+}
+
+function setupYearFilter(sources) {
+  if (!elements.filterYear || !elements.uiFilters) return;
+
+  // Ищем уникальные годы
+  const years = [...new Set(sources.map(s => s.year).filter(Boolean))].sort((a, b) => b - a);
+  
+  // Показываем общий блок фильтров, если есть результаты
+  if (sources.length > 0) {
+    elements.uiFilters.classList.remove("hidden");
+  } else {
+    elements.uiFilters.classList.add("hidden");
+    return;
+  }
+
+  // Логика перестроения:
+  if (years.length > 0) {
+    // Если годы есть - показываем селект, он встанет справа от цены
+    elements.filterYear.style.display = "block"; 
+    elements.filterYear.innerHTML = '<option value="all">Все годы</option>';
+    years.forEach(year => {
+      elements.filterYear.innerHTML += `<option value="${year}">${year}</option>`;
+    });
+  } else {
+    // Если годов нет - УДАЛЯЕМ селект из верстки (display: none)
+    // Благодаря Flexbox в CSS, поле цены само прыгнет на его место (в самый край)
+    elements.filterYear.style.display = "none";
+  }
 }
 
 function normalizeObject(value) {
