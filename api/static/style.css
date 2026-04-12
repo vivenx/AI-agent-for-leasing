@@ -488,3 +488,88 @@ input::placeholder {
         flex-direction: column;
     }
 }
+/* Стили для контейнера фильтров */
+.section-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    width: 100%;
+}
+
+.filters-container {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end; /* Прижимает содержимое вправо */
+}
+
+.filters-container.hidden {
+    display: none;
+}
+
+/* Красивые поля ввода для фильтров */
+.filter-input, .filter-select {
+    padding: 8px 12px;
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.filter-input:focus, .filter-select:focus {
+    border-color: var(--primary);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.filter-input {
+    width: 110px;
+    text-align: center;
+}
+
+.filter-select {
+    cursor: pointer;
+}
+
+.filter-select option {
+    background: #0f172a;
+    color: var(--text);
+}
+
+/* --- ФИНАЛЬНЫЕ ПРАВКИ ДЛЯ ФИЛЬТРОВ --- */
+
+.filter-input::-webkit-outer-spin-button,
+.filter-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.filter-input[type=number] {
+    -moz-appearance: textfield;
+}
+
+.filter-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C2.185 5.355 2.398 5 2.715 5h9.57a.715.715 0 0 1 .54.303.715.715 0 0 1 .15.535l-4.796 5.482a.893.893 0 0 1-1.332 0z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px !important;
+}
+
+@media (max-width: 768px) {
+    .section-header-flex {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .filters-container {
+        width: 100%;
+    }
+    .filter-input, .filter-select {
+        flex: 1; /* На мобилках растянутся поровну */
+        width: 100%;
+    }
+}
