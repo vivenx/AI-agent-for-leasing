@@ -178,16 +178,18 @@ function setMode(mode) {
 
   elements.manualFields?.classList.toggle("hidden", !isManual);
   elements.documentFields?.classList.toggle("hidden", isManual);
-  elements.specsSection?.classList.toggle("hidden", isManual);
-  elements.documentSection?.classList.toggle("hidden", isManual);
-  elements.warningsSection?.classList.add("hidden");
+
+  // СКРЫВАЕМ секции в правой панели при смене режима
+  elements.specsSection?.classList.add("hidden");    // Скрываем Характеристики
+  elements.documentSection?.classList.add("hidden"); // Скрываем Документ
+  elements.warningsSection?.classList.add("hidden"); // Скрываем Предупреждения
+  elements.resultContent?.classList.remove("show");  // Прячем весь результат
+
   if (elements.priceLabel) {
     elements.priceLabel.textContent = isManual ? "Цена клиента" : "Цена по документу";
   }
+  
   elements.submitBtn.textContent = isManual ? "Начать анализ" : "Загрузить и проанализировать";
-  elements.loadingText.textContent = isManual
-    ? "Анализируем рынок..."
-    : "Обрабатываем документ и проверяем рынок...";
 }
 
 async function submitManual() {
