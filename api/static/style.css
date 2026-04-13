@@ -573,3 +573,13 @@ input::placeholder {
         width: 100%;
     }
 }
+
+/* Цветовая индикация отклонения от цены клиента */
+.price-normal { color: var(--accent) !important; }  /* Выгодно или в норме (Зеленый) */
+.price-warning { color: var(--warning) !important; } /* Дороже на 10-20% (Желтый) */
+.price-danger { color: var(--danger) !important; }   /* Оверпрайс 20%+ (Красный) */
+
+/* Мягкое свечение для опасных цен, чтобы сразу бросались в глаза */
+.price-danger {
+    text-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
+}
