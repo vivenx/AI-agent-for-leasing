@@ -37,6 +37,91 @@ from leasing_analyzer.services.market import (
 
 logger = get_logger(__name__)
 _requests_session = get_http_session()
+_STATUS_CHECK_TIMEOUT = 8
+
+
+def _get_url_status(url: str) -> Optional[int]:
+    """Возвращает итоговый HTTP-статус URL или None, если URL недоступен."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        )
+    }
+
+    try:
+        response = _requests_session.head(
+            url,
+            allow_redirects=True,
+            timeout=_STATUS_CHECK_TIMEOUT,
+            headers=headers,
+        )
+        if response.status_code == 405:
+            logger.debug(f"[URL_CHECK] HEAD not allowed, retrying with GET: {url}")
+            response = _requests_session.get(
+                url,
+                allow_redirects=True,
+                timeout=_STATUS_CHECK_TIMEOUT,
+                headers=headers,
+                stream=True,
+            )
+        logger.info(f"[URL_CHECK] status={response.status_code} url={url}")
+        return response.status_code
+    except requests.RequestException as exc:
+        logger.warning(f"[URL_CHECK] failed url={url} error={exc}")
+        return None
+
+
+def is_url_available(url: str) -> bool:
+    """Проверяет, что URL доступен и отдает HTTP 200 после редиректов."""
+    if not is_valid_url(url):
+        return False
+
+    status_code = _get_url_status(url)
+    if status_code != 200:
+        logger.debug(f"[URL_CHECK] rejected status={status_code} url={url}")
+        return False
+    return True
+
+
+def filter_available_results(results: list[dict]) -> list[dict]:
+    """Оставляет только результаты с доступным URL, чтобы не тратить время на анализ."""
+    if not results:
+        return []
+
+    available_with_index: list[tuple[int, dict]] = []
+    max_workers = min(max(1, len(results)), CONFIG.max_workers)
+    logger.info(f"[URL_CHECK] batch_start total={len(results)}")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_get_url_status, result.get("link", "")): (idx, result)
+            for idx, result in enumerate(results)
+        }
+        for future in as_completed(futures):
+            idx, result = futures[future]
+            url = result.get("link", "")
+            try:
+                status_code = future.result()
+                if status_code == 200:
+                    enriched_result = dict(result)
+                    enriched_result["http_status"] = status_code
+                    available_with_index.append((idx, enriched_result))
+                    logger.info(f"[URL_CHECK] accepted status=200 url={url}")
+                else:
+                    logger.info(
+                        f"[URL_CHECK] filtered status="
+                        f"{status_code if status_code is not None else 'unreachable'} url={url}"
+                    )
+            except Exception as exc:
+                logger.warning(f"[URL_CHECK] crashed url={url} error={exc}")
+
+    available_with_index.sort(key=lambda item: item[0])
+    available_results = [result for _, result in available_with_index]
+    logger.info(
+        f"[URL_CHECK] batch_done reachable={len(available_results)} total={len(results)}"
+    )
+    return available_results
 
 
 def extract_model_from_query(query: str) -> str:
@@ -177,6 +262,10 @@ def _process_single_url(
     if not is_valid_url(url):
         logger.debug(f"[{idx}/{total}] Invalid URL: {url}")
         return []
+
+    if result.get("http_status") != 200 and not is_url_available(url):
+        logger.debug(f"[{idx}/{total}] [URL_CHECK] unavailable_before_fetch url={url}")
+        return []
     
     domain = urlparse(url).netloc.replace("www.", "")
     logger.debug(f"[{idx}/{total}] Processing {domain} | {url}")
@@ -187,7 +276,7 @@ def _process_single_url(
     html = fetcher.fetch_page(url, scroll_times=scroll_times, wait=CONFIG.scroll_wait)
     
     if not html:
-        logger.debug(f"[{idx}/{total}] Failed to load {url}")
+        logger.warning(f"[{idx}/{total}] [URL_CHECK] selenium_load_failed url={url}")
         return []
     
     # Разбираем страницу выбранной стратегией
@@ -235,10 +324,17 @@ def search_and_analyze(
         filtered_google = filter_search_results(search_results, num_results)
 
     all_results = merge_with_mandatory(filtered_google, mandatory_urls)
-    logger.info(f"Total URLs: {len(all_results)}")
+    logger.info(f"Total URLs before availability check: {len(all_results)}")
 
     if not all_results:
         logger.warning("No URLs to process")
+        return []
+
+    all_results = filter_available_results(all_results)
+    logger.info(f"Total URLs after availability check: {len(all_results)}")
+
+    if not all_results:
+        logger.warning("No reachable URLs to process after availability filtering")
         return []
 
     # Создаем стратегии парсинга
