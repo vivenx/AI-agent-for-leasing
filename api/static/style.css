@@ -6,7 +6,7 @@
     --text: #f1f5f9;
     --text-secondary: #94a3b8;
     --muted: #64748b;
-    --danger: #f43f5e;
+    --danger: #be123c; 
     --warning: #f59e0b;
     --border: rgba(59, 130, 246, 0.3);
     --surface: rgba(15, 23, 42, 0.95);
@@ -572,4 +572,21 @@ input::placeholder {
         flex: 1; /* На мобилках растянутся поровну */
         width: 100%;
     }
+}
+
+/* Цветовая индикация отклонения от цены клиента */
+.price-normal { color: var(--accent) !important; }  /* Выгодно или в норме (Зеленый) */
+.price-warning { color: var(--warning) !important; } /* Дороже на 10-20% (Желтый) */
+.price-danger { color: var(--danger) !important; }   /* Оверпрайс 20%+ (Красный) */
+
+/* Убираем стрелочки для Chrome, Safari, Edge и Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Убираем стрелочки для Firefox */
+input[type=number] {
+    -moz-appearance: textfield;
 }

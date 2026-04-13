@@ -157,12 +157,16 @@ function bindForm() {
 }
 
 function bindFilters() {
-  // Добавляем слушатель на ввод цены (сработает сразу, как начнешь печатать)
+  // Слушатель на ввод цены в фильтре "Макс. цена" (срабатывает сразу при печати)
   elements.filterMaxPrice?.addEventListener("input", applyFilters);
   
-  // Добавляем слушатель на выбор года
+  // Слушатель на выбор года
   elements.filterYear?.addEventListener("change", applyFilters);
+
+  //Слушатель на ввод цены клиента (срабатывает сразу при печати)
+  elements.clientPrice?.addEventListener("input", applyFilters);
 }
+
 
 function setMode(mode) {
   currentMode = mode;
@@ -174,16 +178,18 @@ function setMode(mode) {
 
   elements.manualFields?.classList.toggle("hidden", !isManual);
   elements.documentFields?.classList.toggle("hidden", isManual);
-  elements.specsSection?.classList.toggle("hidden", isManual);
-  elements.documentSection?.classList.toggle("hidden", isManual);
-  elements.warningsSection?.classList.add("hidden");
+
+  // СКРЫВАЕМ секции в правой панели при смене режима
+  elements.specsSection?.classList.add("hidden");    // Скрываем Характеристики
+  elements.documentSection?.classList.add("hidden"); // Скрываем Документ
+  elements.warningsSection?.classList.add("hidden"); // Скрываем Предупреждения
+  elements.resultContent?.classList.remove("show");  // Прячем весь результат
+
   if (elements.priceLabel) {
     elements.priceLabel.textContent = isManual ? "Цена клиента" : "Цена по документу";
   }
+  
   elements.submitBtn.textContent = isManual ? "Начать анализ" : "Загрузить и проанализировать";
-  elements.loadingText.textContent = isManual
-    ? "Анализируем рынок..."
-    : "Обрабатываем документ и проверяем рынок...";
 }
 
 async function submitManual() {
@@ -415,30 +421,42 @@ function renderDetails(container, data, emptyText) {
 
 function renderSources(sources, setupFilters = true) {
   if (setupFilters) {
-    allSources = sources; // Сохраняем оригинал при первом получении
+    allSources = sources;
     setupYearFilter(sources);
   }
 
-  if (!sources.length) {
-    elements.sourcesList.innerHTML = '<div class="empty-note">Источники не найдены</div>';
-    return;
-  }
+  // Получаем цену клиента из инпута
+  const customerPrice = parseFloat(elements.clientPrice?.value) || 0;
 
   elements.sourcesList.innerHTML = sources
     .map((source) => {
-      const meta = [source.source, source.year, source.condition, source.location].filter(Boolean);
+      const currentPrice = source.price || 0;
+      let priceClass = "price-normal"; // По умолчанию зеленый
+
+      if (customerPrice > 0 && currentPrice > 0) {
+        const diff = (currentPrice - customerPrice) / customerPrice;
+
+        if (diff > 0.25) {
+          priceClass = "price-danger";  // Больше чем на 25% дороже
+        } else if (diff > 0.10) {
+          priceClass = "price-warning"; // Больше чем на 10% дороже
+        }
+        // Если diff <= 0.10 или цена ниже клиентской, остается price-normal
+      }
+
       const title = source.title || "Источник";
-      const price = source.price_str || formatPrice(source.price);
+      const priceStr = source.price_str || formatPrice(source.price);
       const url = source.url || "#";
+      const meta = [source.source, source.year, source.location].filter(Boolean);
 
       return `
         <div class="source-card">
           <div class="source-card-head">
-            <a class="source-title" href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>
-            <div class="source-price">${escapeHtml(price)}</div>
+            <a class="source-title" href="${url}" target="_blank">${escapeHtml(title)}</a>
+            <div class="source-price ${priceClass}">${escapeHtml(priceStr)}</div>
           </div>
           <div class="source-meta">
-            ${meta.map((item) => `<span>${escapeHtml(String(item))}</span>`).join("")}
+            ${meta.map(m => `<span>${escapeHtml(String(m))}</span>`).join("")}
           </div>
         </div>
       `;
