@@ -25,7 +25,7 @@ from leasing_analyzer.parsing.base import (
     GenericParserStrategy,
     ParserStrategy,
 )
-from leasing_analyzer.parsing.helpers import deduplicate_offers
+from leasing_analyzer.parsing.helpers import deduplicate_offers, deduplicate_offers_by_seller
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
@@ -390,6 +390,7 @@ def search_and_analyze(
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
+    offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
     logger.info(f"Total offers after processing: {len(offers)}")

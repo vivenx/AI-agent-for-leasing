@@ -13,16 +13,24 @@ from leasing_analyzer.core.utils import (
 )
 
 
+def extract_visible_text(html_content: str) -> str:
+    """Извлекает видимый текст страницы без служебных блоков."""
+    if not html_content:
+        return ""
+
+    soup = BeautifulSoup(html_content, "html.parser")
+    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript", "iframe"]):
+        tag.decompose()
+    return soup.get_text(separator=" ", strip=True)
+
+
 def parse_page_basic(html_content: str, model_name: str) -> BasicParseResult:
     """Извлекает базовые структурированные данные из HTML с помощью regex."""
     result: BasicParseResult = {}
     if not html_content:
         return result
     
-    soup = BeautifulSoup(html_content, "html.parser")
-    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript", "iframe"]):
-        tag.decompose()
-    text = soup.get_text(separator=" ", strip=True)
+    text = extract_visible_text(html_content)
 
     if re.search(r"цена\s+по\s+запросу|по\s+договоренности", text, flags=re.IGNORECASE):
         result["price_on_request"] = True
