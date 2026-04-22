@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Optional
 from urllib.parse import urlparse
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from leasing_analyzer.clients.ai_analyzer import AIAnalyzer
@@ -16,18 +16,16 @@ from leasing_analyzer.core.models import LeasingOffer, SearchResult
 from leasing_analyzer.core.rate_limit import google_rate_limiter
 from leasing_analyzer.core.sessions import get_http_session
 from leasing_analyzer.core.utils import (
-    is_valid_url,
     extract_query_constraints,
     extract_year_from_text,
+    is_valid_url,
 )
-
 from leasing_analyzer.parsing.base import (
-    ParserStrategy,
     AvitoParserStrategy,
     GenericParserStrategy,
+    ParserStrategy,
 )
 from leasing_analyzer.parsing.helpers import deduplicate_offers
-
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
@@ -38,6 +36,8 @@ from leasing_analyzer.services.market import (
 logger = get_logger(__name__)
 _requests_session = get_http_session()
 _STATUS_CHECK_TIMEOUT = 8
+_BROWSER_REACHABLE_STATUSES = {401, 403, 405, 406, 407, 408, 409, 425, 429}
+_DEAD_STATUSES = {404, 410, 451, 500, 501, 502, 503, 504, 521, 522, 523, 524}
 
 
 def _get_url_status(url: str) -> Optional[int]:
@@ -56,8 +56,8 @@ def _get_url_status(url: str) -> Optional[int]:
             timeout=_STATUS_CHECK_TIMEOUT,
             headers=headers,
         )
-        if response.status_code == 405:
-            logger.debug(f"[URL_CHECK] HEAD not allowed, retrying with GET: {url}")
+        if response.status_code in {403, 405, 406, 429}:
+            logger.debug(f"[URL_CHECK] HEAD returned {response.status_code}, retrying with GET: {url}")
             response = _requests_session.get(
                 url,
                 allow_redirects=True,
@@ -72,20 +72,33 @@ def _get_url_status(url: str) -> Optional[int]:
         return None
 
 
+def _is_status_browser_reachable(status_code: Optional[int]) -> bool:
+    """Оценивает, есть ли смысл пробовать открыть URL в Selenium."""
+    if status_code is None:
+        return False
+    if 200 <= status_code < 400:
+        return True
+    if status_code in _BROWSER_REACHABLE_STATUSES:
+        return True
+    if status_code in _DEAD_STATUSES:
+        return False
+    return False
+
+
 def is_url_available(url: str) -> bool:
-    """Проверяет, что URL доступен и отдает HTTP 200 после редиректов."""
+    """Проверяет, что URL не выглядит явно мертвым до открытия в браузере."""
     if not is_valid_url(url):
         return False
 
     status_code = _get_url_status(url)
-    if status_code != 200:
+    if not _is_status_browser_reachable(status_code):
         logger.debug(f"[URL_CHECK] rejected status={status_code} url={url}")
         return False
     return True
 
 
 def filter_available_results(results: list[dict]) -> list[dict]:
-    """Оставляет только результаты с доступным URL, чтобы не тратить время на анализ."""
+    """Оставляет только результаты, которые не выглядят заведомо недоступными."""
     if not results:
         return []
 
@@ -103,11 +116,11 @@ def filter_available_results(results: list[dict]) -> list[dict]:
             url = result.get("link", "")
             try:
                 status_code = future.result()
-                if status_code == 200:
+                if _is_status_browser_reachable(status_code):
                     enriched_result = dict(result)
                     enriched_result["http_status"] = status_code
                     available_with_index.append((idx, enriched_result))
-                    logger.info(f"[URL_CHECK] accepted status=200 url={url}")
+                    logger.info(f"[URL_CHECK] accepted status={status_code} url={url}")
                 else:
                     logger.info(
                         f"[URL_CHECK] filtered status="
@@ -142,13 +155,10 @@ def filter_offers_by_requested_year(
     return filtered if filtered else offers
 
 
-
-
-
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type(requests.RequestException)
+    retry=retry_if_exception_type(requests.RequestException),
 )
 def _search_google_request(query: str, num_results: int) -> list[SearchResult]:
     """Выполняет поисковый запрос к Serper API с повторами и лимитированием."""
@@ -182,11 +192,12 @@ def search_google(query: str, num_results: int = 10) -> list[dict]:
     if not CONFIG.serper_api_key:
         logger.warning("SERPER_API_KEY not set, skipping Google search")
         return []
-    
+
     results = search_google_cached(query, num_results)
     if not results:
         logger.debug(f"No Google results for query: {query}")
     return list(results)
+
 
 MANDATORY_SOURCES = [
     {
@@ -203,18 +214,21 @@ MANDATORY_SOURCES = [
     },
 ]
 
+
 def generate_mandatory_urls(model_name: str) -> list[dict]:
     """Генерирует URL для обязательных лизинговых источников."""
     query_encoded = model_name.replace(" ", "+").lower()
     mandatory = []
     for source in MANDATORY_SOURCES:
         url = source["search_url"].format(query=query_encoded)
-        mandatory.append({
+        mandatory.append(
+            {
                 "link": url,
                 "title": f"{model_name} - {source['name']}",
                 "is_mandatory": True,
                 "source_name": source["name"],
-        })
+            }
+        )
     return mandatory
 
 
@@ -222,7 +236,7 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
     """Фильтрует поисковые результаты, удаляя заблокированные домены."""
     filtered = []
     blocked_domains = {"chelindleasing"}
-    
+
     for result in results:
         if len(filtered) >= max_results:
             break
@@ -238,7 +252,7 @@ def merge_with_mandatory(search_results: list[dict], mandatory: list[dict]) -> l
     """Объединяет результаты поиска с обязательными источниками."""
     existing_domains = {urlparse(r.get("link", "")).netloc.replace("www.", "") for r in search_results}
     merged = []
-    
+
     for m in mandatory:
         domain = m.get("source_name", "")
         if domain not in existing_domains:
@@ -247,39 +261,38 @@ def merge_with_mandatory(search_results: list[dict], mandatory: list[dict]) -> l
     merged.extend(search_results)
     return merged
 
+
 def _process_single_url(
     result: dict,
     model_name: str,
     fetcher: SeleniumFetcher,
     parser: ParserStrategy,
     idx: int,
-    total: int
+    total: int,
 ) -> list[LeasingOffer]:
     """Обрабатывает один URL и возвращает найденные предложения."""
     url = result.get("link", "")
     title = result.get("title", "")
-    
+
     if not is_valid_url(url):
         logger.debug(f"[{idx}/{total}] Invalid URL: {url}")
         return []
 
-    if result.get("http_status") != 200 and not is_url_available(url):
+    if result.get("http_status") is None and not is_url_available(url):
         logger.debug(f"[{idx}/{total}] [URL_CHECK] unavailable_before_fetch url={url}")
         return []
-    
+
     domain = urlparse(url).netloc.replace("www.", "")
     logger.debug(f"[{idx}/{total}] Processing {domain} | {url}")
-    
-    # Загружаем страницу
+
     is_avito = CONFIG.avito_domain in domain
     scroll_times = CONFIG.avito_scroll_times if is_avito else CONFIG.other_scroll_times
     html = fetcher.fetch_page(url, scroll_times=scroll_times, wait=CONFIG.scroll_wait)
-    
+
     if not html:
         logger.warning(f"[{idx}/{total}] [URL_CHECK] selenium_load_failed url={url}")
         return []
-    
-    # Разбираем страницу выбранной стратегией
+
     try:
         offers = parser.parse(html, url, model_name, title)
         if offers:
@@ -337,25 +350,21 @@ def search_and_analyze(
         logger.warning("No reachable URLs to process after availability filtering")
         return []
 
-    # Создаем стратегии парсинга
     avito_parser = AvitoParserStrategy()
     generic_parser = GenericParserStrategy(analyzer, use_ai)
 
     offers: list[LeasingOffer] = []
-    
-    # Обрабатываем URL параллельно
+
     with ThreadPoolExecutor(max_workers=CONFIG.max_workers) as executor:
         futures = {}
-        
+
         for idx, result in enumerate(all_results, 1):
             url = result.get("link", "")
             domain = urlparse(url).netloc.replace("www.", "")
             is_avito = CONFIG.avito_domain in domain
-            
-            # Выбираем стратегию парсинга
+
             parser = avito_parser if is_avito else generic_parser
-            
-            # Отправляем задачу в пул
+
             future = executor.submit(
                 _process_single_url,
                 result,
@@ -363,11 +372,10 @@ def search_and_analyze(
                 fetcher,
                 parser,
                 idx,
-                len(all_results)
+                len(all_results),
             )
             futures[future] = (idx, url)
-        
-        # Собираем результаты с прогресс-баром
+
         with tqdm(total=len(futures), desc="Processing URLs", unit="url") as pbar:
             for future in as_completed(futures):
                 idx, url = futures[future]
@@ -379,12 +387,10 @@ def search_and_analyze(
                 finally:
                     pbar.update(1)
 
-    # Удаляем дубликаты и отфильтровываем выбросы
-    # Порядок фильтров: качество -> дедупликация -> год -> выбросы
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
     offers = filter_price_outliers(offers)
-    
+
     logger.info(f"Total offers after processing: {len(offers)}")
     return offers
