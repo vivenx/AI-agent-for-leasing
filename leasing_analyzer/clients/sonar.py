@@ -186,11 +186,30 @@ class SonarAnalogFinder:
             self.api_url = CONFIG.sonar_api_url
             self.model = CONFIG.sonar_model
             logger.info(f"[SONAR] Using direct Perplexity API: {self.api_url} with model: {self.model}")
+
+        logger.info(
+            "[SONAR] Rate limit config: calls=%s per %.1fs, min_delay=%.1fs, retry_after_default=%.1fs",
+            CONFIG.sonar_rate_limit_calls,
+            CONFIG.sonar_rate_limit_period,
+            CONFIG.sonar_min_delay,
+            CONFIG.sonar_retry_after_default,
+        )
         
     def is_available(self) -> bool:
         """Проверяет, доступен ли Sonar API."""
         # Принимаем ключи, начинающиеся с `pplx-` (Perplexity) или `sk-` (прокси-сервисы вроде artemox)
         return bool(self.api_key and (self.api_key.startswith("pplx-") or self.api_key.startswith("sk-")))
+
+    @staticmethod
+    def _parse_retry_after(response: requests.Response) -> Optional[float]:
+        retry_after = response.headers.get("Retry-After")
+        if not retry_after:
+            return None
+        try:
+            value = float(retry_after)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
     
     def _call_sonar(
         self,
@@ -245,7 +264,9 @@ class SonarAnalogFinder:
         # Retry логика для 500 ошибок и таймаутов
         for attempt in range(retries + 1):
             try:
-                sonar_rate_limiter.wait_if_needed()
+                waited = sonar_rate_limiter.wait_if_needed()
+                if waited >= 1.0:
+                    logger.info(f"[SONAR] Cooldown before request: {waited:.1f}s")
                 
                 # Логируем детали запроса для отладки (только для прокси)
                 if "artemox.com" in self.api_url and attempt == 0:
@@ -277,6 +298,18 @@ class SonarAnalogFinder:
                     return None
                 
                 # Обрабатываем ошибки 500: возможна неподдерживаемая модель
+                if response.status_code == 429:
+                    wait_time = self._parse_retry_after(response) or CONFIG.sonar_retry_after_default
+                    if attempt < retries:
+                        logger.warning(
+                            f"[SONAR] 429 Too Many Requests, waiting {wait_time:.1f}s "
+                            f"(attempt {attempt + 1}/{retries + 1})..."
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    logger.error(f"[SONAR] 429 Too Many Requests after {retries + 1} attempts")
+                    return None
+
                 if response.status_code == 500:
                     # Проверяем, не связана ли ошибка с моделью
                     try:
@@ -343,6 +376,14 @@ class SonarAnalogFinder:
             except requests.HTTPError as e:
                 if e.response and e.response.status_code == 401:
                     logger.error("[SONAR] Authentication failed - check PERPLEXITY_API_KEY in .env file")
+                    return None
+                if e.response and e.response.status_code == 429:
+                    wait_time = self._parse_retry_after(e.response) or CONFIG.sonar_retry_after_default
+                    if attempt < retries:
+                        logger.warning(f"[SONAR] HTTP 429 error, retrying in {wait_time:.1f}s...")
+                        time.sleep(wait_time)
+                        continue
+                    logger.error(f"[SONAR] HTTP 429 persisted after {retries + 1} attempts")
                     return None
                 if e.response and e.response.status_code == 500:
                     # Проверяем, не связана ли ошибка с моделью

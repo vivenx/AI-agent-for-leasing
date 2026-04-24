@@ -103,6 +103,13 @@ class MarketReport(BaseModel):
     client_price: Optional[int] = None
     client_price_ok: Optional[bool] = None
     explanation: Optional[str] = None
+    source_summary: list[dict] = Field(default_factory=list)
+    analysis_basis: Optional[str] = None
+    fallback_used: bool = False
+    fallback_analog: Optional[str] = None
+    fallback_analogs: list[str] = Field(default_factory=list)
+    agent_audit: list[dict] = Field(default_factory=list)
+    agent_audit_summary: dict = Field(default_factory=dict)
 
 
 class BestOfferAnalysis(BaseModel):
@@ -464,6 +471,13 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 client_price=market_report.get("client_price"),
                 client_price_ok=market_report.get("client_price_ok"),
                 explanation=market_report.get("explanation"),
+                source_summary=market_report.get("source_summary", []),
+                analysis_basis=market_report.get("analysis_basis"),
+                fallback_used=market_report.get("fallback_used", False),
+                fallback_analog=market_report.get("fallback_analog"),
+                fallback_analogs=market_report.get("fallback_analogs", []),
+                agent_audit=market_report.get("agent_audit", []),
+                agent_audit_summary=market_report.get("agent_audit_summary", {}),
             ),
             analogs_details=analogs_for_response,
             sources=sources_for_response,

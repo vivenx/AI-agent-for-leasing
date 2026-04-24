@@ -45,3 +45,16 @@ def get_sonar_session() -> requests.Session:
         pool_connections=10,
         pool_maxsize=10,
     )
+
+
+@lru_cache(maxsize=1)
+def get_gigachat_session() -> requests.Session:
+    """Отдельная сессия для GigaChat без транспортных автоповторов.
+
+    Клиент GigaChat сам управляет backoff и повторными попытками. Повторы на уровне
+    urllib3 скрывают реальное время ожидания и многократно раздувают один timeout.
+    """
+    return build_no_retry_session(
+        pool_connections=10,
+        pool_maxsize=10,
+    )
