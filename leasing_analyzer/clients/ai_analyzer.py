@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 from typing import Optional
 
 import requests
 
 from leasing_analyzer.clients.gigachat import GigaChatClient
+from leasing_analyzer.core.audit import AgentAuditTrail
+from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.core.models import AIAnalysisResult, AnalogReview, ValidationResult
-from leasing_analyzer.core.utils import ensure_list_str
+from leasing_analyzer.core.utils import ensure_list_str, is_valid_url, normalize_whitespace
 from leasing_analyzer.parsing.content_cleaner import ContentCleaner
 
 logger = get_logger(__name__)
@@ -375,10 +378,255 @@ IT-ОБОРУДОВАНИЕ:
   "key_differences": ["главное отличие 1", "главное отличие 2", "главное отличие 3"]
 }}"""
     
-    def __init__(self, client: GigaChatClient, cleaner: ContentCleaner, memory_context: str | None = None):
+    def __init__(
+        self,
+        client: GigaChatClient,
+        cleaner: ContentCleaner,
+        memory_context: str | None = None,
+        audit_trail: AgentAuditTrail | None = None,
+    ):
         self.client = client
         self.cleaner = cleaner
         self.memory_context = memory_context
+        self.audit_trail = audit_trail
+        self._max_year = datetime.now().year + 1
+
+    def _record_audit(
+        self,
+        action: str,
+        status: str,
+        risk: str,
+        confidence: float,
+        message: str,
+        **metrics: object,
+    ) -> None:
+        if self.audit_trail is None:
+            return
+        self.audit_trail.record(
+            action=action,
+            status=status,
+            risk=risk,
+            confidence=confidence,
+            message=message,
+            **metrics,
+        )
+
+    @staticmethod
+    def _clean_text(value: object, max_length: int = 200) -> str | None:
+        if value is None:
+            return None
+        text = normalize_whitespace(str(value))
+        if not text:
+            return None
+        return text[:max_length]
+
+    @staticmethod
+    def _to_int(value: object) -> int | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _to_float(value: object) -> float | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return float(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+
+    def _clean_list(
+        self,
+        value: object,
+        *,
+        max_items: int = 5,
+        max_length: int = 160,
+    ) -> list[str]:
+        items: list[str] = []
+        seen: set[str] = set()
+
+        for raw_item in ensure_list_str(value):
+            text = self._clean_text(raw_item, max_length=max_length)
+            if not text or len(text) < 2:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(text)
+            if len(items) >= max_items:
+                break
+
+        return items
+
+    def _clean_specs(self, value: object) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+
+        cleaned: dict[str, str] = {}
+        for raw_key, raw_val in value.items():
+            key = self._clean_text(raw_key, max_length=60)
+            val = self._clean_text(raw_val, max_length=120)
+            if not key or not val:
+                continue
+            cleaned[key] = val
+            if len(cleaned) >= 8:
+                break
+        return cleaned
+
+    def _normalize_analysis_result(self, result: object) -> AIAnalysisResult:
+        if not isinstance(result, dict):
+            return {}
+
+        normalized: AIAnalysisResult = {}
+
+        for key in ("category", "vendor", "model", "condition", "location", "seller_name", "seller_phone", "seller_email"):
+            text = self._clean_text(result.get(key))
+            if text:
+                normalized[key] = text
+
+        currency = self._clean_text(result.get("currency"), max_length=8)
+        if currency:
+            currency = currency.upper()
+            if currency in {"RUB", "USD", "EUR"}:
+                normalized["currency"] = currency
+
+        price = self._to_int(result.get("price"))
+        if price is not None and CONFIG.min_valid_price <= price <= 10**12:
+            normalized["price"] = price
+
+        monthly_payment = self._to_int(result.get("monthly_payment"))
+        if monthly_payment is not None and 1 <= monthly_payment <= 10**10:
+            normalized["monthly_payment"] = monthly_payment
+
+        year = self._to_int(result.get("year"))
+        if year is not None and 1900 <= year <= self._max_year:
+            normalized["year"] = year
+
+        specs = self._clean_specs(result.get("specs"))
+        if specs:
+            normalized["specs"] = specs
+
+        pros = self._clean_list(result.get("pros"), max_items=5)
+        if pros:
+            normalized["pros"] = pros
+
+        cons = self._clean_list(result.get("cons"), max_items=5)
+        if cons:
+            normalized["cons"] = cons
+
+        analogs = self._clean_list(result.get("analogs_mentioned"), max_items=5, max_length=80)
+        if analogs:
+            normalized["analogs_mentioned"] = analogs
+
+        seller_profile_url = self._clean_text(result.get("seller_profile_url"), max_length=300)
+        if seller_profile_url and is_valid_url(seller_profile_url):
+            normalized["seller_profile_url"] = seller_profile_url
+
+        return normalized
+
+    def _assess_analysis_result(
+        self,
+        result: AIAnalysisResult,
+        *,
+        text_length: int,
+    ) -> tuple[bool, str, str, float, str, dict[str, object]]:
+        informative_fields = sum(
+            bool(result.get(key))
+            for key in ("category", "vendor", "model", "price", "monthly_payment", "year", "condition", "location")
+        )
+        specs_count = len(result.get("specs", {}))
+        pros_count = len(result.get("pros", []))
+        cons_count = len(result.get("cons", []))
+        identity_signals = sum(bool(result.get(key)) for key in ("vendor", "model", "category")) + int(specs_count > 0)
+
+        metrics = {
+            "text_len": text_length,
+            "fields": informative_fields,
+            "identity_signals": identity_signals,
+            "specs": specs_count,
+            "pros": pros_count,
+            "cons": cons_count,
+        }
+
+        if not result:
+            return False, "warning", "high", 0.15, "AI parse rejected: empty or untrusted structured payload", metrics
+
+        if identity_signals == 0:
+            return False, "warning", "high", 0.2, "AI parse rejected: no reliable identity signals for the asset", metrics
+
+        confidence = min(0.95, 0.3 + informative_fields * 0.08 + specs_count * 0.05)
+        if informative_fields >= 4 or specs_count >= 3:
+            return True, "ok", "low", confidence, "AI parse accepted with sufficient evidence", metrics
+
+        return True, "warning", "medium", confidence, "AI parse accepted, but evidence is thin", metrics
+
+    def _normalize_analogs(self, result: object) -> list[str]:
+        if not isinstance(result, dict):
+            return []
+
+        generic_names = {
+            "аналог",
+            "аналоги",
+            "лизинг",
+            "объявления",
+            "объявление",
+            "рынок",
+        }
+
+        cleaned: list[str] = []
+        for candidate in self._clean_list(result.get("analogs"), max_items=5, max_length=80):
+            if candidate.casefold() in generic_names:
+                continue
+            cleaned.append(candidate)
+        return cleaned
+
+    def _normalize_specs_result(self, result: object) -> dict[str, str]:
+        if not isinstance(result, dict):
+            return {}
+        return self._clean_specs(result.get("specs"))
+
+    def _normalize_review_result(self, result: object) -> AnalogReview:
+        if not isinstance(result, dict):
+            return {}
+
+        normalized: AnalogReview = {}
+        pros = self._clean_list(result.get("pros"), max_items=4)
+        cons = self._clean_list(result.get("cons"), max_items=4)
+        note = self._clean_text(result.get("note"), max_length=240)
+        price_hint = self._to_int(result.get("price_hint"))
+        best_link = self._clean_text(result.get("best_link"), max_length=300)
+
+        if pros:
+            normalized["pros"] = pros
+        if cons:
+            normalized["cons"] = cons
+        if note:
+            normalized["note"] = note
+        if price_hint is not None and CONFIG.min_valid_price <= price_hint <= 10**12:
+            normalized["price_hint"] = price_hint
+        if best_link and is_valid_url(best_link):
+            normalized["best_link"] = best_link
+
+        return normalized
+
+    def _normalize_validation_result(self, result: object) -> ValidationResult:
+        if not isinstance(result, dict):
+            return {"is_valid": True, "comment": "AI validation returned invalid payload"}
+
+        raw_is_valid = result.get("is_valid")
+        if isinstance(raw_is_valid, bool):
+            is_valid = raw_is_valid
+        elif isinstance(raw_is_valid, str):
+            is_valid = raw_is_valid.strip().lower() not in {"false", "0", "no", "suspicious"}
+        else:
+            is_valid = True
+
+        comment = self._clean_text(result.get("comment"), max_length=240) or "AI validation completed"
+        return {"is_valid": is_valid, "comment": comment}
 
     def _compose_user_content(self, text: str) -> str:
         if self.memory_context:
@@ -393,6 +641,13 @@ IT-ОБОРУДОВАНИЕ:
         """Анализирует HTML-контент и извлекает структурированные данные."""
         text = self.cleaner.clean(html_content)
         if not text:
+            self._record_audit(
+                "ai.analyze_content",
+                "warning",
+                "high",
+                0.1,
+                "AI parse skipped: cleaned page content is empty",
+            )
             return None
         
         try:
@@ -400,11 +655,25 @@ IT-ОБОРУДОВАНИЕ:
                 self.ANALYSIS_PROMPT,
                 self._compose_user_content(text),
                 temperature=0.1,
-                max_tokens=1500
+                max_tokens=1500,
+                action_name="ai.analyze_content",
             )
-            return result
+            normalized = self._normalize_analysis_result(result)
+            accepted, status, risk, confidence, message, metrics = self._assess_analysis_result(
+                normalized,
+                text_length=len(text),
+            )
+            self._record_audit("ai.analyze_content", status, risk, confidence, message, **metrics)
+            return normalized if accepted else None
         except requests.RequestException:
             logger.warning("Failed to analyze content with AI")
+            self._record_audit(
+                "ai.analyze_content",
+                "warning",
+                "high",
+                0.1,
+                "AI parse failed due to request error",
+            )
             return None
     
     def suggest_analogs(self, item_name: str) -> list[str]:
@@ -414,17 +683,49 @@ IT-ОБОРУДОВАНИЕ:
                 self.ANALOGS_PROMPT,
                 self._compose_user_content(item_name),
                 temperature=0.2,
-                max_tokens=500
+                max_tokens=500,
+                action_name="ai.suggest_analogs",
             )
-            if result:
-                return ensure_list_str(result.get("analogs"))
+            analogs = self._normalize_analogs(result)
+            if analogs:
+                self._record_audit(
+                    "ai.suggest_analogs",
+                    "ok" if len(analogs) >= 3 else "warning",
+                    "low" if len(analogs) >= 3 else "medium",
+                    0.8 if len(analogs) >= 3 else 0.45,
+                    "Analog suggestions prepared",
+                    count=len(analogs),
+                )
+                return analogs
         except requests.RequestException:
             logger.warning(f"Failed to get analog suggestions for {item_name}")
+            self._record_audit(
+                "ai.suggest_analogs",
+                "warning",
+                "high",
+                0.1,
+                "Analog suggestion failed due to request error",
+            )
+        self._record_audit(
+            "ai.suggest_analogs",
+            "warning",
+            "high",
+            0.15,
+            "No trustworthy analog suggestions returned",
+        )
         return []
     
     def extract_specs_from_text(self, text: str) -> dict:
         """Извлекает технические характеристики из текста с помощью AI."""
         if not text or len(text.strip()) < 50:
+            self._record_audit(
+                "ai.extract_specs",
+                "warning",
+                "medium",
+                0.2,
+                "Specs extraction skipped: source text is too short",
+                text_len=len(text or ""),
+            )
             return {}
         
         try:
@@ -432,12 +733,36 @@ IT-ОБОРУДОВАНИЕ:
                 self.SPECS_EXTRACTION_PROMPT,
                 self._compose_user_content(text[:8000]),  # Ограничиваем длину текста
                 temperature=0.1,
-                max_tokens=2000
+                max_tokens=2000,
+                action_name="ai.extract_specs",
             )
-            if result and "specs" in result:
-                return result["specs"]
+            specs = self._normalize_specs_result(result)
+            if specs:
+                self._record_audit(
+                    "ai.extract_specs",
+                    "ok" if len(specs) >= 3 else "warning",
+                    "low" if len(specs) >= 3 else "medium",
+                    0.8 if len(specs) >= 3 else 0.5,
+                    "Technical specs extracted",
+                    specs=len(specs),
+                )
+                return specs
         except requests.RequestException as e:
             logger.warning(f"Failed to extract specs with AI: {e}")
+            self._record_audit(
+                "ai.extract_specs",
+                "warning",
+                "high",
+                0.1,
+                "Specs extraction failed due to request error",
+            )
+        self._record_audit(
+            "ai.extract_specs",
+            "warning",
+            "high",
+            0.15,
+            "No trustworthy specs extracted",
+        )
         return {}
     
     def review_analog(self, analog_name: str, listings: list[dict]) -> AnalogReview:
@@ -453,11 +778,47 @@ IT-ОБОРУДОВАНИЕ:
                 self.REVIEW_PROMPT,
                 self._compose_user_content(user_content),
                 temperature=0.2,
-                max_tokens=600
+                max_tokens=600,
+                action_name="ai.review_analog",
             )
-            return result or {}
+            normalized = self._normalize_review_result(result)
+            signals = (
+                len(normalized.get("pros", []))
+                + len(normalized.get("cons", []))
+                + int(bool(normalized.get("note")))
+                + int(bool(normalized.get("price_hint")))
+            )
+            if signals == 0:
+                self._record_audit(
+                    "ai.review_analog",
+                    "warning",
+                    "high",
+                    0.15,
+                    "Analog review rejected: no useful structured evidence",
+                    analog=analog_name,
+                )
+                return {}
+
+            self._record_audit(
+                "ai.review_analog",
+                "ok" if signals >= 3 else "warning",
+                "low" if signals >= 3 else "medium",
+                0.8 if signals >= 3 else 0.45,
+                "Analog review prepared",
+                analog=analog_name,
+                signals=signals,
+            )
+            return normalized
         except requests.RequestException:
             logger.warning(f"Failed to review analog {analog_name}")
+            self._record_audit(
+                "ai.review_analog",
+                "warning",
+                "high",
+                0.1,
+                "Analog review failed due to request error",
+                analog=analog_name,
+            )
             return {}
     
     def validate_report(self, report: dict) -> ValidationResult:
@@ -476,11 +837,29 @@ IT-ОБОРУДОВАНИЕ:
                 self.VALIDATION_PROMPT,
                 self._compose_user_content(f"Отчет:\n{details}"),
                 temperature=0.1,
-                max_tokens=500
+                max_tokens=500,
+                action_name="ai.validate_report",
             )
-            return result or {"is_valid": True, "comment": "Parse error"}
+            normalized = self._normalize_validation_result(result)
+            self._record_audit(
+                "ai.validate_report",
+                "ok" if normalized.get("is_valid", True) else "warning",
+                "low" if normalized.get("is_valid", True) else "medium",
+                0.8 if normalized.get("is_valid", True) else 0.45,
+                normalized.get("comment", "AI validation completed"),
+                offers_count=summary["offers_count"],
+            )
+            return normalized
         except requests.RequestException:
             logger.warning("Failed to validate report with AI")
+            self._record_audit(
+                "ai.validate_report",
+                "warning",
+                "high",
+                0.1,
+                "AI market validation failed due to request error",
+                offers_count=summary["offers_count"],
+            )
             return {"is_valid": True, "comment": "AI not available"}
     
     def compare_two_offers(self, offer1: dict, offer2: dict) -> dict:
@@ -498,7 +877,8 @@ IT-ОБОРУДОВАНИЕ:
                 prompt,
                 self._compose_user_content("Сравни объявления"),
                 temperature=0.2,
-                max_tokens=800
+                max_tokens=800,
+                action_name="ai.compare_two_offers",
             )
             return result or {"winner": 1, "score_1": 5.0, "score_2": 5.0, "reason": "Comparison failed"}
         except requests.RequestException:
@@ -526,7 +906,8 @@ IT-ОБОРУДОВАНИЕ:
                 prompt,
                 self._compose_user_content("Найди лучшее объявление"),
                 temperature=0.2,
-                max_tokens=1000
+                max_tokens=1000,
+                action_name="ai.find_best_offer",
             )
             if result and "best_index" in result:
                 return result
@@ -555,7 +936,8 @@ IT-ОБОРУДОВАНИЕ:
                 prompt,
                 self._compose_user_content("Сравни лучшие объявления"),
                 temperature=0.2,
-                max_tokens=1200
+                max_tokens=1200,
+                action_name="ai.compare_best_offers",
             )
             return result or {
                 "winner": "original",
