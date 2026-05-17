@@ -13,6 +13,7 @@ from leasing_analyzer.core.models import SonarAnalogResult, SonarComparisonResul
 from leasing_analyzer.core.rate_limit import sonar_rate_limiter
 from leasing_analyzer.core.sessions import get_sonar_session
 from leasing_analyzer.core.utils import (
+    clean_analog_name,
     describe_price_difference,
     ensure_list_str,
     format_price,
@@ -491,15 +492,22 @@ class SonarAnalogFinder:
         
         # Обрабатываем результаты
         analogs = []
-        for a in raw_analogs[:3]:  # Берем максимум 3
-            name = a.get("name", "").strip()
+        seen_names = set()
+        for a in raw_analogs:
+            if len(analogs) >= 3:
+                break
+            name = clean_analog_name(a.get("name", ""))
             if name:  # Только если есть название
+                key = name.lower()
+                if key in seen_names:
+                    continue
                 analogs.append({
                     "name": name,
                     "description": a.get("key_diff", "") or a.get("description", ""),
                     "price_range": a.get("price_range", ""),
                     "key_difference": a.get("key_diff", "") or a.get("key_difference", "")
                 })
+                seen_names.add(key)
         
         # Если получили меньше 3, логируем предупреждение
         if len(analogs) < 3:

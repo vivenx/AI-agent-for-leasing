@@ -14,10 +14,32 @@ from leasing_analyzer.clients.sonar import (
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.core.models import LeasingOffer, ListingSummary, SonarAnalogResult
-from leasing_analyzer.core.utils import extract_price_candidate, format_price, is_valid_url
+from leasing_analyzer.core.utils import clean_analog_name, extract_price_candidate, format_price, is_valid_url
 
 
 logger = get_logger(__name__)
+
+
+def _clean_sonar_details(details: list[SonarAnalogResult]) -> list[SonarAnalogResult]:
+    cleaned_details: list[SonarAnalogResult] = []
+    seen: set[str] = set()
+
+    for detail in details:
+        cleaned_name = clean_analog_name(detail.get("name", ""))
+        if not cleaned_name:
+            logger.warning(f"Skipping noisy analog name: {detail.get('name')!r}")
+            continue
+
+        key = cleaned_name.lower()
+        if key in seen:
+            continue
+
+        cleaned_detail = dict(detail)
+        cleaned_detail["name"] = cleaned_name
+        cleaned_details.append(cleaned_detail)
+        seen.add(key)
+
+    return cleaned_details
 
 
 def percentile(sorted_values: list[int], p: float) -> float:
@@ -144,8 +166,11 @@ def collect_analogs(
     cached_analogs = get_cached_sonar_analogs(item_name)
     if cached_analogs:
         logger.info(f"[SONAR] Using cached analogs for '{item_name}'")
+        cached_analogs = _clean_sonar_details(cached_analogs)
         analog_names = [a["name"] for a in cached_analogs if a.get("name")]
-        return analog_names[:3], cached_analogs[:3]
+        if analog_names:
+            return analog_names[:3], cached_analogs[:3]
+        logger.warning("[SONAR] Cached analogs were empty after cleanup, falling back")
     
     # ОСНОВНОЙ ПУТЬ: используем Sonar для поиска аналогов, если он доступен
     if sonar_finder and sonar_finder.is_available():
@@ -156,6 +181,7 @@ def collect_analogs(
             sonar_details = sonar_finder.find_analogs(item_name)
             
             if sonar_details:
+                sonar_details = _clean_sonar_details(sonar_details)
                 analog_names = [a["name"] for a in sonar_details if a.get("name")]
                 if analog_names:
                     logger.info(f"[SONAR] Successfully found {len(analog_names)} analogs via Sonar")
@@ -186,14 +212,18 @@ def collect_analogs(
     # Собираем аналоги из самих предложений
     for o in offers:
         for a in o.analogs:
-            analogs_set.add(a.strip())
+            cleaned = clean_analog_name(a)
+            if cleaned:
+                analogs_set.add(cleaned)
     
     # Добавляем предложения от GigaChat
     if len(analogs_set) < 3 and use_ai and analyzer:
         logger.info("[FALLBACK] Using GigaChat for analog suggestions...")
         ai_analogs = analyzer.suggest_analogs(item_name)
         for a in ai_analogs:
-            analogs_set.add(a)
+            cleaned = clean_analog_name(a)
+            if cleaned:
+                analogs_set.add(cleaned)
 
     # Дособираем аналоги через Google
     if len(analogs_set) < 3:
@@ -204,11 +234,12 @@ def collect_analogs(
             parts = re.split(r"[–—|-]", title)
             if parts:
                 candidate = parts[0].strip()
-                if candidate and len(candidate.split()) <= 6:
-                    analogs_set.add(candidate)
+                cleaned = clean_analog_name(candidate)
+                if cleaned:
+                    analogs_set.add(cleaned)
 
     # Возвращаем ровно 3 аналога, либо меньше если не нашли
-    analog_names = [a for a in analogs_set if a][:3]
+    analog_names = sorted(analogs_set)[:3]
     logger.info(f"[FALLBACK] Found {len(analog_names)} analogs via fallback methods")
     return analog_names, sonar_details
 

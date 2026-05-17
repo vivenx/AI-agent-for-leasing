@@ -8,7 +8,7 @@ import requests
 from leasing_analyzer.clients.gigachat import GigaChatClient
 from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.core.models import AIAnalysisResult, AnalogReview, ValidationResult
-from leasing_analyzer.core.utils import ensure_list_str
+from leasing_analyzer.core.utils import clean_analog_name, ensure_list_str
 from leasing_analyzer.parsing.content_cleaner import ContentCleaner
 
 logger = get_logger(__name__)
@@ -417,7 +417,15 @@ IT-ОБОРУДОВАНИЕ:
                 max_tokens=500
             )
             if result:
-                return ensure_list_str(result.get("analogs"))
+                analogs = []
+                seen = set()
+                for analog in ensure_list_str(result.get("analogs")):
+                    cleaned = clean_analog_name(analog)
+                    key = cleaned.lower()
+                    if cleaned and key not in seen:
+                        analogs.append(cleaned)
+                        seen.add(key)
+                return analogs
         except requests.RequestException:
             logger.warning(f"Failed to get analog suggestions for {item_name}")
         return []
