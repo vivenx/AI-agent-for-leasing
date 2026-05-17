@@ -57,6 +57,9 @@ class Config:
     gigachat_model: str = "GigaChat-2"
     gigachat_oauth_url: str = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
     gigachat_api_url: str = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+    gigachat_request_timeout: int = field(default_factory=lambda: int(os.getenv("GIGACHAT_REQUEST_TIMEOUT", "45")))
+    gigachat_request_attempts: int = field(default_factory=lambda: int(os.getenv("GIGACHAT_REQUEST_ATTEMPTS", "2")))
+    gigachat_retry_base_delay: float = field(default_factory=lambda: float(os.getenv("GIGACHAT_RETRY_BASE_DELAY", "3.0")))
 
     # Настройки поиска
     default_num_results: int = 5
@@ -77,9 +80,14 @@ class Config:
     gigachat_rate_limit_calls: int = 15
     gigachat_rate_limit_period: float = 60.0
     gigachat_min_delay: float = 0.5
-    sonar_rate_limit_calls: int = 10
-    sonar_rate_limit_period: float = 60.0
-    sonar_min_delay: float = 0.3
+    sonar_rate_limit_calls: int = field(default_factory=lambda: int(os.getenv("SONAR_RATE_LIMIT_CALLS", "10")))
+    sonar_rate_limit_period: float = field(default_factory=lambda: float(os.getenv("SONAR_RATE_LIMIT_PERIOD", "60.0")))
+    sonar_min_delay: float = field(
+        default_factory=lambda: float(os.getenv("SONAR_MIN_DELAY", os.getenv("PERPLEXITY_MIN_DELAY", "3.0")))
+    )
+    sonar_retry_after_default: float = field(
+        default_factory=lambda: float(os.getenv("SONAR_RETRY_AFTER_DEFAULT", "15.0"))
+    )
 
     # Настройки памяти
     memory_enabled: bool = field(default_factory=lambda: os.getenv("MEMORY_ENABLED", "true").lower() == "true")

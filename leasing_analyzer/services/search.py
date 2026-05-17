@@ -10,6 +10,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from tqdm import tqdm
 
 from leasing_analyzer.clients.ai_analyzer import AIAnalyzer
+from leasing_analyzer.core.audit import AgentAuditTrail
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.core.models import LeasingOffer, SearchResult
@@ -26,7 +27,7 @@ from leasing_analyzer.parsing.base import (
     GenericParserStrategy,
     ParserStrategy,
 )
-from leasing_analyzer.parsing.helpers import deduplicate_offers
+from leasing_analyzer.parsing.helpers import deduplicate_offers, deduplicate_offers_by_seller
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
@@ -362,6 +363,8 @@ def search_and_analyze(
     num_results: int = 5,
     use_ai: bool = True,
     item_name: Optional[str] = None,
+    audit_trail: AgentAuditTrail | None = None,
+    search_label: str = "primary",
 ) -> list[LeasingOffer]:
     """Основной поисковый пайплайн с параллельной обработкой."""
     cleaned_query = clean_search_query(query)
@@ -398,12 +401,36 @@ def search_and_analyze(
     all_results = merge_with_mandatory(filtered_google, mandatory_urls)
     logger.info(f"Total URLs before availability check: {len(all_results)}")
 
+    if audit_trail is not None:
+        audit_trail.record(
+            action="search.collect_urls",
+            status="ok" if all_results else "warning",
+            risk="low" if len(all_results) >= num_results else ("medium" if all_results else "high"),
+            confidence=0.8 if len(all_results) >= num_results else (0.45 if all_results else 0.15),
+            message="Candidate URLs collected for market search" if all_results else "No candidate URLs collected for market search",
+            search=search_label,
+            mandatory=len(mandatory_urls),
+            google=len(filtered_google),
+            total=len(all_results),
+        )
+
     if not all_results:
         logger.warning("No URLs to process")
         return []
 
     all_results = filter_available_results(all_results)
     logger.info(f"Total URLs after availability check: {len(all_results)}")
+
+    if audit_trail is not None:
+        audit_trail.record(
+            action="search.url_availability",
+            status="ok" if all_results else "warning",
+            risk="low" if len(all_results) >= max(1, num_results // 2) else ("medium" if all_results else "high"),
+            confidence=0.75 if len(all_results) >= max(1, num_results // 2) else (0.4 if all_results else 0.1),
+            message="Reachable URLs passed availability check" if all_results else "No reachable URLs after availability check",
+            search=search_label,
+            reachable=len(all_results),
+        )
 
     if not all_results:
         logger.warning("No reachable URLs to process after availability filtering")
@@ -449,7 +476,21 @@ def search_and_analyze(
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
+    offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
     logger.info(f"Total offers after processing: {len(offers)}")
+
+    if audit_trail is not None:
+        audit_trail.record(
+            action="search.extract_offers",
+            status="ok" if offers else "warning",
+            risk="low" if len(offers) >= 3 else ("medium" if offers else "high"),
+            confidence=0.85 if len(offers) >= 3 else (0.5 if offers else 0.1),
+            message="Market offers extracted from reachable sources" if offers else "No offers extracted from reachable sources",
+            search=search_label,
+            offers=len(offers),
+            requested_year=requested_year,
+            urls=len(all_results),
+        )
     return offers

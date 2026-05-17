@@ -22,10 +22,11 @@ class RateLimiter:
         self.last_call_time = 0.0
         self._lock = Lock()  # Потокобезопасность
     
-    def wait_if_needed(self):
+    def wait_if_needed(self) -> float:
         """Ждет, если лимит запросов может быть превышен."""
         with self._lock:
             now = time.time()
+            total_waited = 0.0
             
             # Соблюдаем минимальную паузу между запросами
             if self.min_delay > 0 and self.last_call_time > 0:
@@ -34,6 +35,7 @@ class RateLimiter:
                     sleep_time = self.min_delay - time_since_last
                     logger.debug(f"Min delay: waiting {sleep_time:.2f}s")
                     time.sleep(sleep_time)
+                    total_waited += sleep_time
                     now = time.time()
             
             # Удаляем старые вызовы вне текущего периода
@@ -46,6 +48,7 @@ class RateLimiter:
                 if sleep_time > 0:
                     logger.debug(f"Rate limit: waiting {sleep_time:.1f}s")
                     time.sleep(sleep_time)
+                    total_waited += sleep_time
                     now = time.time()
                     # После паузы перепроверяем окно лимита
                     while self.calls and self.calls[0] < now - self.period:
@@ -53,6 +56,7 @@ class RateLimiter:
             
             self.calls.append(now)
             self.last_call_time = now
+            return total_waited
 
 
 google_rate_limiter = RateLimiter(

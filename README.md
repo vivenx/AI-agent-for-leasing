@@ -95,9 +95,20 @@ SERPER_API_KEY=your_serper_api_key
 GIGACHAT_AUTH_DATA=your_gigachat_auth_data
 PERPLEXITY_API_KEY=your_perplexity_or_proxy_key
 
+# Опционально для fail-fast поведения GigaChat
+GIGACHAT_REQUEST_TIMEOUT=45
+GIGACHAT_REQUEST_ATTEMPTS=2
+GIGACHAT_RETRY_BASE_DELAY=3.0
+
 # Опционально для proxy-режима Sonar
 PERPLEXITY_BASE_URL=https://api.artemox.com/v1
 PERPLEXITY_MODEL=sonar-reasoning-pro
+
+# Опционально для снижения частоты запросов к Perplexity
+SONAR_MIN_DELAY=3.0
+SONAR_RETRY_AFTER_DEFAULT=15
+SONAR_RATE_LIMIT_CALLS=10
+SONAR_RATE_LIMIT_PERIOD=60
 
 # Опционально
 LOG_LEVEL=INFO
@@ -112,10 +123,14 @@ MEMORY_DB_PATH=data/agent_memory.sqlite
   нужен для поиска объявлений через Serper/Google
 - `GIGACHAT_AUTH_DATA`:
   нужен для AI-анализа и обязателен для `POST /api/analyze-document`
+- `GIGACHAT_REQUEST_TIMEOUT`, `GIGACHAT_REQUEST_ATTEMPTS`, `GIGACHAT_RETRY_BASE_DELAY`:
+  ограничивают длительность одного AI-запроса к GigaChat и убирают многоминутные зависания из-за каскада повторов
 - `PERPLEXITY_API_KEY`:
   нужен для Sonar-аналогов и deep-comparison
 - `PERPLEXITY_BASE_URL` и `PERPLEXITY_MODEL`:
   используются, если Sonar идёт через proxy
+- `SONAR_MIN_DELAY`, `SONAR_RETRY_AFTER_DEFAULT`, `SONAR_RATE_LIMIT_CALLS`, `SONAR_RATE_LIMIT_PERIOD`:
+  управляют cooldown между запросами к Perplexity и снижают риск `429 Too Many Requests`
 - `MEMORY_ENABLED` и `MEMORY_DB_PATH`:
   включают локальную SQLite-память по сессиям и задают путь к файлу базы
 

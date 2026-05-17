@@ -116,8 +116,14 @@
             </div>
 
             <div class="sources-section">
-                <div class="section-header">
+                <div class="section-header-flex">
                     <h3>Источники</h3>
+                    <div id="ui-filters" class="filters-container hidden">
+                        <input type="number" id="filterMaxPrice" class="filter-input" placeholder="Макс. цена">
+                        <select id="filterYear" class="filter-select">
+                            <option value="all">Все годы</option>
+                        </select>
+                    </div>
                 </div>
                 <div id="sourcesList" class="sources-list">
                     <div class="empty-note">Источники появятся после анализа</div>
