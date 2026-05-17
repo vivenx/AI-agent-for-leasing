@@ -4,7 +4,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
@@ -17,6 +17,7 @@ from leasing_analyzer.core.models import LeasingOffer, SearchResult
 from leasing_analyzer.core.rate_limit import google_rate_limiter
 from leasing_analyzer.core.sessions import get_http_session
 from leasing_analyzer.core.utils import (
+    clean_search_query,
     extract_query_constraints,
     extract_year_from_text,
     is_valid_url,
@@ -188,15 +189,26 @@ def search_google_cached(query: str, num_results: int = 10) -> tuple:
         return tuple()
 
 
-def search_google(query: str, num_results: int = 10) -> list[dict]:
+def search_google(
+    query: str,
+    num_results: int = 10,
+    reject_noisy_markers: bool = True,
+) -> list[dict]:
     """Поиск Google через Serper API с возвратом списка для совместимости."""
+    cleaned_query = clean_search_query(query, reject_noisy_markers=reject_noisy_markers)
+    if not cleaned_query:
+        logger.warning(f"Skipping invalid search query: {query!r}")
+        return []
+    if cleaned_query != query:
+        logger.info(f"Cleaned search query: {query!r} -> {cleaned_query!r}")
+
     if not CONFIG.serper_api_key:
         logger.warning("SERPER_API_KEY not set, skipping Google search")
         return []
 
-    results = search_google_cached(query, num_results)
+    results = search_google_cached(cleaned_query, num_results)
     if not results:
-        logger.debug(f"No Google results for query: {query}")
+        logger.debug(f"No Google results for query: {cleaned_query}")
     return list(results)
 
 
@@ -218,7 +230,11 @@ MANDATORY_SOURCES = [
 
 def generate_mandatory_urls(model_name: str) -> list[dict]:
     """Генерирует URL для обязательных лизинговых источников."""
-    query_encoded = model_name.replace(" ", "+").lower()
+    model_name = clean_search_query(model_name, max_words=8, max_length=80)
+    if not model_name:
+        return []
+
+    query_encoded = quote_plus(model_name.lower())
     mandatory = []
     for source in MANDATORY_SOURCES:
         url = source["search_url"].format(query=query_encoded)
@@ -233,6 +249,39 @@ def generate_mandatory_urls(model_name: str) -> list[dict]:
     return mandatory
 
 
+def _is_noisy_search_result(result: dict) -> bool:
+    url = result.get("link", "")
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    title = (result.get("title") or "").lower()
+
+    noisy_path_parts = (
+        "/spec/",
+        "/specs/",
+        "/characteristics/",
+        "/catalog/",
+        "/manual",
+        "/zapchasti",
+        "/parts",
+    )
+    if any(part in path for part in noisy_path_parts):
+        return True
+
+    noisy_title_markers = (
+        "характеристик",
+        "технические данные",
+        "спецификац",
+        "каталог",
+        "обзор",
+        "руководство",
+        "запчаст",
+        "manual",
+        "specification",
+        "technical details",
+    )
+    return any(marker in title for marker in noisy_title_markers)
+
+
 def filter_search_results(results: list[dict], max_results: int = 10) -> list[dict]:
     """Фильтрует поисковые результаты, удаляя заблокированные домены."""
     filtered = []
@@ -244,6 +293,9 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
         url = result.get("link", "")
         domain = urlparse(url).netloc.replace("www.", "")
         if any(blocked in domain for blocked in blocked_domains):
+            continue
+        if _is_noisy_search_result(result):
+            logger.debug(f"Skipping noisy search result: {url}")
             continue
         filtered.append(result)
     return filtered
@@ -315,11 +367,18 @@ def search_and_analyze(
     search_label: str = "primary",
 ) -> list[LeasingOffer]:
     """Основной поисковый пайплайн с параллельной обработкой."""
+    cleaned_query = clean_search_query(query)
+    if not cleaned_query:
+        logger.warning(f"Skipping invalid search pipeline query: {query!r}")
+        return []
+    query = cleaned_query
+
     logger.info("=" * 70)
     logger.info(f"Search query: {query}")
     logger.info("=" * 70)
 
     if item_name:
+        item_name = clean_search_query(item_name, max_words=8, max_length=80) or item_name
         model_name, requested_year = extract_query_constraints(item_name)
     else:
         model_name = extract_model_from_query(query)

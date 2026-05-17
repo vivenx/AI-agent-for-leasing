@@ -11,7 +11,7 @@ from leasing_analyzer.core.audit import AgentAuditTrail
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.core.models import AIAnalysisResult, AnalogReview, ValidationResult
-from leasing_analyzer.core.utils import ensure_list_str, is_valid_url, normalize_whitespace
+from leasing_analyzer.core.utils import clean_analog_name, ensure_list_str, is_valid_url, normalize_whitespace
 from leasing_analyzer.parsing.content_cleaner import ContentCleaner
 
 logger = get_logger(__name__)
@@ -636,6 +636,19 @@ IT-ОБОРУДОВАНИЕ:
                 f"Current input:\n{text}"
             )
         return text
+
+    def _normalize_analogs(self, result: dict | None) -> list[str]:
+        analogs = []
+        seen = set()
+
+        for analog in ensure_list_str((result or {}).get("analogs")):
+            cleaned = clean_analog_name(analog)
+            key = cleaned.lower()
+            if cleaned and key not in seen:
+                analogs.append(cleaned)
+                seen.add(key)
+
+        return analogs
     
     def analyze_content(self, html_content: str) -> Optional[AIAnalysisResult]:
         """Анализирует HTML-контент и извлекает структурированные данные."""
@@ -688,14 +701,15 @@ IT-ОБОРУДОВАНИЕ:
             )
             analogs = self._normalize_analogs(result)
             if analogs:
-                self._record_audit(
-                    "ai.suggest_analogs",
-                    "ok" if len(analogs) >= 3 else "warning",
-                    "low" if len(analogs) >= 3 else "medium",
-                    0.8 if len(analogs) >= 3 else 0.45,
-                    "Analog suggestions prepared",
-                    count=len(analogs),
-                )
+                if hasattr(self, "_record_audit"):
+                    self._record_audit(
+                        "ai.suggest_analogs",
+                        "ok" if len(analogs) >= 3 else "warning",
+                        "low" if len(analogs) >= 3 else "medium",
+                        0.8 if len(analogs) >= 3 else 0.45,
+                        "Analog suggestions prepared",
+                        count=len(analogs),
+                    )
                 return analogs
         except requests.RequestException:
             logger.warning(f"Failed to get analog suggestions for {item_name}")

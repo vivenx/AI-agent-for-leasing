@@ -15,6 +15,122 @@ def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+", flags=re.IGNORECASE)
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((?:https?://|www\.)[^)]+\)", flags=re.IGNORECASE)
+_DOMAIN_RE = re.compile(
+    r"\b[\w.-]+\.(?:ru|com|net|org|рф|su|kz|by|info|biz|io)(?:/\S*)?\b",
+    flags=re.IGNORECASE,
+)
+_NOISY_QUERY_MARKERS = (
+    "\u0441\u0441\u044b\u043b\u043a",  # ssylk
+    "\u043f\u043e\u0434\u0440\u043e\u0431",  # podrob
+    "\u0445\u0430\u0440\u0430\u043a\u0442\u0435\u0440\u0438\u0441\u0442\u0438\u043a",  # harakteristik
+    "\u0434\u0435\u0442\u0430\u043b",  # detal
+    "\u0437\u0430\u043f\u0447\u0430\u0441\u0442",  # zapchast
+    "\u043a\u0430\u0442\u0430\u043b\u043e\u0433",  # katalog
+    "\u043e\u0431\u0437\u043e\u0440",  # obzor
+    "pdf",
+    "manual",
+    "specification",
+    "technical detail",
+    "details",
+    "read more",
+)
+_QUERY_LABEL_RE = re.compile(
+    r"^\s*(?:[-*•]\s*)?(?:\d+[.)]\s*)?"
+    r"(?:(?:name|model|analog|query|url|link|title|название|модель|аналог|запрос|ссылка)\s*[:：-]\s*)+",
+    flags=re.IGNORECASE,
+)
+
+
+def _remove_noisy_parentheses(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        inner = match.group(1).lower()
+        if _URL_RE.search(inner) or _DOMAIN_RE.search(inner):
+            return " "
+        if any(marker in inner for marker in _NOISY_QUERY_MARKERS):
+            return " "
+        return match.group(0)
+
+    return re.sub(r"\(([^)]*)\)", replace, text)
+
+
+def _remove_unclosed_bracket_tail(text: str) -> str:
+    for opening, closing in (("(", ")"), ("[", "]")):
+        open_pos = text.rfind(opening)
+        close_pos = text.rfind(closing)
+        if open_pos > close_pos:
+            text = text[:open_pos]
+    return text
+
+
+def clean_search_query(
+    query: str,
+    *,
+    max_words: int = 12,
+    max_length: int = 120,
+    reject_noisy_markers: bool = True,
+) -> str:
+    if not isinstance(query, str):
+        return ""
+
+    original = query
+    query = _MARKDOWN_LINK_RE.sub(r"\1", query)
+    query = _URL_RE.sub(" ", query)
+    query = _DOMAIN_RE.sub(" ", query)
+    query = _remove_noisy_parentheses(query)
+    query = _remove_unclosed_bracket_tail(query)
+    query = query.replace("`", " ").replace('"', " ").replace("'", " ")
+
+    candidates = re.split(r"[\r\n;]+", query)
+    query = next((part for part in candidates if part.strip()), "")
+    query = _QUERY_LABEL_RE.sub("", query)
+    query = normalize_whitespace(query)
+    query = query.strip(" \t\r\n:：,.;|/\\()[]{}<>-")
+    query = normalize_whitespace(query)
+
+    lower_query = query.lower()
+    if not query or not re.search(r"[A-Za-zА-Яа-яЁё0-9]", query):
+        return ""
+    if _URL_RE.search(original) and not query:
+        return ""
+    if reject_noisy_markers and any(marker in lower_query for marker in _NOISY_QUERY_MARKERS):
+        return ""
+    if len(query) > max_length or len(query.split()) > max_words:
+        return ""
+
+    return query
+
+
+def clean_analog_name(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+
+    cleaned = name
+    cleaned = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", " ", cleaned)
+    cleaned = _remove_unclosed_bracket_tail(cleaned)
+
+    for separator in (" — ", " – ", " - ", " | "):
+        if separator in cleaned:
+            head, tail = cleaned.split(separator, 1)
+            tail_lower = tail.lower()
+            if any(marker in tail_lower for marker in _NOISY_QUERY_MARKERS) or len(tail.split()) > 3:
+                cleaned = head
+                break
+
+    cleaned = clean_search_query(cleaned, max_words=8, max_length=80)
+    if not cleaned:
+        return ""
+
+    cleaned = re.sub(
+        r"\b(?:купить|лизинг|цена|стоимость|аналог|buy|lease|leasing|price)\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return clean_search_query(cleaned, max_words=8, max_length=80)
+
+
 def digits_to_int(text: str) -> Optional[int]:
     digits = re.sub(r"[^\d]", "", text or "")
     if not digits:
