@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import requests
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from typing import Optional
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, unquote, urlparse
 
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
@@ -40,6 +41,154 @@ _requests_session = get_http_session()
 _STATUS_CHECK_TIMEOUT = 8
 _BROWSER_REACHABLE_STATUSES = {401, 403, 405, 406, 407, 408, 409, 425, 429}
 _DEAD_STATUSES = {404, 410, 451, 500, 501, 502, 503, 504, 521, 522, 523, 524}
+_WIKIPEDIA_DOMAINS = {"wikipedia.org", "wikimedia.org", "wikiwand.com"}
+_IRRELEVANT_ROUTE_MARKERS = {
+    "article": (
+        "/article",
+        "/articles",
+        "/blog",
+        "/blogs",
+        "/journal",
+        "/publication",
+        "/publications",
+        "/stati",
+        "/statya",
+        "/статьи",
+        "/статья",
+        "/блог",
+    ),
+    "news": (
+        "/news",
+        "/novosti",
+        "/novost",
+        "/press",
+        "/press-release",
+        "/новости",
+        "/новость",
+        "/пресс",
+    ),
+    "forum": (
+        "/forum",
+        "/forums",
+        "/thread",
+        "/threads",
+        "/topic",
+        "/topics",
+        "/community",
+        "/discussion",
+        "/discussions",
+        "/форум",
+        "/тема",
+        "/обсуждение",
+    ),
+    "spare_parts": (
+        "/parts",
+        "/spare",
+        "/spares",
+        "/spare-parts",
+        "/zapchasti",
+        "/zapchast",
+        "/autoparts",
+        "/auto-parts",
+        "/partscatalog",
+        "/parts-catalog",
+        "/запчаст",
+        "/детал",
+    ),
+}
+_IRRELEVANT_DOMAIN_MARKERS = {
+    "article": ("blog.", "journal."),
+    "news": ("news.", "novosti."),
+    "forum": ("forum.", "forums.", "community."),
+    "spare_parts": ("zapchasti.", "parts.", "autoparts."),
+}
+_IRRELEVANT_TEXT_PATTERNS = {
+    "article": (
+        r"(?<!\w)стать(?:я|и|ю|е|ей)(?!\w)",
+        r"(?<!\w)articles?(?!\w)",
+        r"(?<!\w)blogs?(?!\w)",
+    ),
+    "news": (
+        r"(?<!\w)новост(?:ь|и|ей|ям|ями|ях)(?!\w)",
+        r"(?<!\w)news(?!\w)",
+        r"(?<!\w)press release(?!\w)",
+    ),
+    "forum": (
+        r"(?<!\w)форум(?:ы|е|ов|ам|ами|ах)?(?!\w)",
+        r"(?<!\w)обсуждени(?:е|я|й|ю|ем|ях)(?!\w)",
+        r"(?<!\w)forums?(?!\w)",
+        r"(?<!\w)threads?(?!\w)",
+    ),
+    "spare_parts": (
+        r"(?<!\w)(?:авто)?запчаст\w*(?!\w)",
+        r"(?<!\w)spare parts?(?!\w)",
+        r"(?<!\w)parts catalog(?!\w)",
+        r"(?<!\w)parts for(?!\w)",
+        r"(?<!\w)детали для(?!\w)",
+    ),
+}
+
+
+def _normalize_search_result_text(result: dict) -> str:
+    parts = [
+        result.get("title", ""),
+        result.get("snippet", ""),
+        result.get("displayedLink", ""),
+        result.get("source_name", ""),
+    ]
+    return f" {' '.join(str(part) for part in parts if part).lower()} "
+
+
+def _domain_matches(domain: str, blocked_domains: set[str]) -> bool:
+    return any(domain == blocked or domain.endswith(f".{blocked}") for blocked in blocked_domains)
+
+
+def get_irrelevant_page_reason(result: dict) -> Optional[str]:
+    """Returns why a search result should not be fetched or parsed."""
+    url = result.get("link", "")
+    if not url:
+        return "empty_url"
+
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower().removeprefix("www.")
+    path = unquote(parsed.path or "").lower()
+    query = unquote(parsed.query or "").lower()
+    route = f"{path}?{query}" if query else path
+    text = _normalize_search_result_text(result)
+    file_format = str(result.get("fileFormat", "")).lower()
+
+    if _domain_matches(domain, _WIKIPEDIA_DOMAINS):
+        return "wikipedia"
+
+    if "pdf" in file_format or path.endswith(".pdf") or ".pdf" in route or "[pdf]" in text:
+        return "pdf"
+
+    for reason, markers in _IRRELEVANT_DOMAIN_MARKERS.items():
+        if any(marker in domain for marker in markers):
+            return reason
+
+    for reason, markers in _IRRELEVANT_ROUTE_MARKERS.items():
+        if any(marker in route for marker in markers):
+            return reason
+
+    for reason, patterns in _IRRELEVANT_TEXT_PATTERNS.items():
+        if any(re.search(pattern, text) for pattern in patterns):
+            return reason
+
+    return None
+
+
+def filter_irrelevant_results(results: list[dict]) -> list[dict]:
+    """Drops pages that are not useful for extracting market offers."""
+    filtered = []
+    for result in results:
+        url = result.get("link", "")
+        reason = get_irrelevant_page_reason(result)
+        if reason:
+            logger.info(f"[PAGE_FILTER] filtered reason={reason} url={url}")
+            continue
+        filtered.append(result)
+    return filtered
 
 
 def _get_url_status(url: str) -> Optional[int]:
@@ -294,6 +443,10 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
         domain = urlparse(url).netloc.replace("www.", "")
         if any(blocked in domain for blocked in blocked_domains):
             continue
+        reason = get_irrelevant_page_reason(result)
+        if reason:
+            logger.info(f"[PAGE_FILTER] filtered reason={reason} url={url}")
+            continue
         if _is_noisy_search_result(result):
             logger.debug(f"Skipping noisy search result: {url}")
             continue
@@ -329,6 +482,11 @@ def _process_single_url(
 
     if not is_valid_url(url):
         logger.debug(f"[{idx}/{total}] Invalid URL: {url}")
+        return []
+
+    irrelevant_reason = get_irrelevant_page_reason(result)
+    if irrelevant_reason:
+        logger.debug(f"[{idx}/{total}] [PAGE_FILTER] skipped reason={irrelevant_reason} url={url}")
         return []
 
     if result.get("http_status") is None and not is_url_available(url):
@@ -399,7 +557,9 @@ def search_and_analyze(
         filtered_google = filter_search_results(search_results, num_results)
 
     all_results = merge_with_mandatory(filtered_google, mandatory_urls)
-    logger.info(f"Total URLs before availability check: {len(all_results)}")
+    logger.info(f"Total URLs before relevance filter: {len(all_results)}")
+    all_results = filter_irrelevant_results(all_results)
+    logger.info(f"Total URLs after relevance filter: {len(all_results)}")
 
     if audit_trail is not None:
         audit_trail.record(
