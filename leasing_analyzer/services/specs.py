@@ -33,7 +33,7 @@ def search_specs_sites(item_name: str, num_sites: int = 5) -> list[dict]:
     seen_urls = set()
     
     for query in queries[:2]:  # Используем только первые 2 запроса, чтобы не плодить лишние обращения
-        results = search_google(query, num_results=num_sites)
+        results = search_google(query, num_results=num_sites, reject_noisy_markers=False)
         for result in results:
             url = result.get("link", "")
             if url and url not in seen_urls:

@@ -5,18 +5,20 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from typing import Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote_plus, unquote, urlparse
 
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from leasing_analyzer.clients.ai_analyzer import AIAnalyzer
+from leasing_analyzer.core.audit import AgentAuditTrail
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.core.models import LeasingOffer, SearchResult
 from leasing_analyzer.core.rate_limit import google_rate_limiter
 from leasing_analyzer.core.sessions import get_http_session
 from leasing_analyzer.core.utils import (
+    clean_search_query,
     extract_query_constraints,
     extract_year_from_text,
     is_valid_url,
@@ -26,7 +28,7 @@ from leasing_analyzer.parsing.base import (
     GenericParserStrategy,
     ParserStrategy,
 )
-from leasing_analyzer.parsing.helpers import deduplicate_offers
+from leasing_analyzer.parsing.helpers import deduplicate_offers, deduplicate_offers_by_seller
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
@@ -336,15 +338,26 @@ def search_google_cached(query: str, num_results: int = 10) -> tuple:
         return tuple()
 
 
-def search_google(query: str, num_results: int = 10) -> list[dict]:
+def search_google(
+    query: str,
+    num_results: int = 10,
+    reject_noisy_markers: bool = True,
+) -> list[dict]:
     """Поиск Google через Serper API с возвратом списка для совместимости."""
+    cleaned_query = clean_search_query(query, reject_noisy_markers=reject_noisy_markers)
+    if not cleaned_query:
+        logger.warning(f"Skipping invalid search query: {query!r}")
+        return []
+    if cleaned_query != query:
+        logger.info(f"Cleaned search query: {query!r} -> {cleaned_query!r}")
+
     if not CONFIG.serper_api_key:
         logger.warning("SERPER_API_KEY not set, skipping Google search")
         return []
 
-    results = search_google_cached(query, num_results)
+    results = search_google_cached(cleaned_query, num_results)
     if not results:
-        logger.debug(f"No Google results for query: {query}")
+        logger.debug(f"No Google results for query: {cleaned_query}")
     return list(results)
 
 
@@ -366,7 +379,11 @@ MANDATORY_SOURCES = [
 
 def generate_mandatory_urls(model_name: str) -> list[dict]:
     """Генерирует URL для обязательных лизинговых источников."""
-    query_encoded = model_name.replace(" ", "+").lower()
+    model_name = clean_search_query(model_name, max_words=8, max_length=80)
+    if not model_name:
+        return []
+
+    query_encoded = quote_plus(model_name.lower())
     mandatory = []
     for source in MANDATORY_SOURCES:
         url = source["search_url"].format(query=query_encoded)
@@ -379,6 +396,39 @@ def generate_mandatory_urls(model_name: str) -> list[dict]:
             }
         )
     return mandatory
+
+
+def _is_noisy_search_result(result: dict) -> bool:
+    url = result.get("link", "")
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    title = (result.get("title") or "").lower()
+
+    noisy_path_parts = (
+        "/spec/",
+        "/specs/",
+        "/characteristics/",
+        "/catalog/",
+        "/manual",
+        "/zapchasti",
+        "/parts",
+    )
+    if any(part in path for part in noisy_path_parts):
+        return True
+
+    noisy_title_markers = (
+        "характеристик",
+        "технические данные",
+        "спецификац",
+        "каталог",
+        "обзор",
+        "руководство",
+        "запчаст",
+        "manual",
+        "specification",
+        "technical details",
+    )
+    return any(marker in title for marker in noisy_title_markers)
 
 
 def filter_search_results(results: list[dict], max_results: int = 10) -> list[dict]:
@@ -396,6 +446,9 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
         reason = get_irrelevant_page_reason(result)
         if reason:
             logger.info(f"[PAGE_FILTER] filtered reason={reason} url={url}")
+            continue
+        if _is_noisy_search_result(result):
+            logger.debug(f"Skipping noisy search result: {url}")
             continue
         filtered.append(result)
     return filtered
@@ -468,13 +521,22 @@ def search_and_analyze(
     num_results: int = 5,
     use_ai: bool = True,
     item_name: Optional[str] = None,
+    audit_trail: AgentAuditTrail | None = None,
+    search_label: str = "primary",
 ) -> list[LeasingOffer]:
     """Основной поисковый пайплайн с параллельной обработкой."""
+    cleaned_query = clean_search_query(query)
+    if not cleaned_query:
+        logger.warning(f"Skipping invalid search pipeline query: {query!r}")
+        return []
+    query = cleaned_query
+
     logger.info("=" * 70)
     logger.info(f"Search query: {query}")
     logger.info("=" * 70)
 
     if item_name:
+        item_name = clean_search_query(item_name, max_words=8, max_length=80) or item_name
         model_name, requested_year = extract_query_constraints(item_name)
     else:
         model_name = extract_model_from_query(query)
@@ -499,12 +561,36 @@ def search_and_analyze(
     all_results = filter_irrelevant_results(all_results)
     logger.info(f"Total URLs after relevance filter: {len(all_results)}")
 
+    if audit_trail is not None:
+        audit_trail.record(
+            action="search.collect_urls",
+            status="ok" if all_results else "warning",
+            risk="low" if len(all_results) >= num_results else ("medium" if all_results else "high"),
+            confidence=0.8 if len(all_results) >= num_results else (0.45 if all_results else 0.15),
+            message="Candidate URLs collected for market search" if all_results else "No candidate URLs collected for market search",
+            search=search_label,
+            mandatory=len(mandatory_urls),
+            google=len(filtered_google),
+            total=len(all_results),
+        )
+
     if not all_results:
         logger.warning("No URLs to process")
         return []
 
     all_results = filter_available_results(all_results)
     logger.info(f"Total URLs after availability check: {len(all_results)}")
+
+    if audit_trail is not None:
+        audit_trail.record(
+            action="search.url_availability",
+            status="ok" if all_results else "warning",
+            risk="low" if len(all_results) >= max(1, num_results // 2) else ("medium" if all_results else "high"),
+            confidence=0.75 if len(all_results) >= max(1, num_results // 2) else (0.4 if all_results else 0.1),
+            message="Reachable URLs passed availability check" if all_results else "No reachable URLs after availability check",
+            search=search_label,
+            reachable=len(all_results),
+        )
 
     if not all_results:
         logger.warning("No reachable URLs to process after availability filtering")
@@ -550,7 +636,21 @@ def search_and_analyze(
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
+    offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
     logger.info(f"Total offers after processing: {len(offers)}")
+
+    if audit_trail is not None:
+        audit_trail.record(
+            action="search.extract_offers",
+            status="ok" if offers else "warning",
+            risk="low" if len(offers) >= 3 else ("medium" if offers else "high"),
+            confidence=0.85 if len(offers) >= 3 else (0.5 if offers else 0.1),
+            message="Market offers extracted from reachable sources" if offers else "No offers extracted from reachable sources",
+            search=search_label,
+            offers=len(offers),
+            requested_year=requested_year,
+            urls=len(all_results),
+        )
     return offers
