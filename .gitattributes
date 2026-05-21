@@ -1,1 +1,2 @@
-*.py text eol=crlf
+* text=auto eol=crlf
+*.ico binary
