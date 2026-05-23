@@ -231,7 +231,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
                     query_analog,
                     fetcher,
                     analyzer,
-                    num_results=3,
+                    num_results=num_results,
                     use_ai=use_ai,
                     item_name=analog,
                 )
@@ -251,7 +251,7 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
 
                 best_analog_offers.append((analog, best_analog_offer))
 
-                listings = fetch_listing_summaries(f"{analog} купить", top_n=3)
+                listings = fetch_listing_summaries(f"{analog} купить", top_n=num_results)
                 price_list = [l["price_guess"] for l in listings if l.get("price_guess")]
                 avg_price_math = int(sum(price_list) / len(price_list)) if price_list else None
 
