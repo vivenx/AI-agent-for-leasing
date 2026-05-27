@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import Optional
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException
 
 from leasing_analyzer.core.config import CONFIG
@@ -33,6 +35,7 @@ class SeleniumFetcher:
             self._options.add_argument("--disable-logging")
             self._options.add_argument("--disable-dev-shm-usage")
             self._options.add_experimental_option("excludeSwitches", ["enable-logging"])
+            self._options.binary_location = os.getenv("CHROME_BIN", "/usr/bin/chromium")
             self._options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
@@ -70,12 +73,14 @@ class SeleniumFetcher:
             self.close()
         
         try:
-            self.driver = webdriver.Chrome(options=self._get_options())
+            driver_bin = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+            self.driver = webdriver.Chrome(service=Service(driver_bin), options=self._get_options())
             # Настраиваем таймауты
             self.driver.set_page_load_timeout(CONFIG.page_load_timeout)
             self.driver.implicitly_wait(CONFIG.implicit_wait)
             self.driver.set_script_timeout(CONFIG.script_timeout)
-            logger.debug("Chrome driver created successfully")
+            logger.info("chromium loaded")
+            logger.info("chromedriver ready")
             return self.driver
         except Exception as e:
             logger.error(f"Failed to create Chrome driver: {e}")
