@@ -17,6 +17,3 @@ __pycache__/
 data/
 
 
-#Исполняемые файлы драйверов
-chromedriver.exe
-chromedriver

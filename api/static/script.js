@@ -39,6 +39,14 @@ const elements = {
   uiFilters: byId("ui-filters"),
   filterMaxPrice: byId("filterMaxPrice"),
   filterYear: byId("filterYear"),
+  linkPreviewModal: byId("linkPreviewModal"),
+  previewLoading: byId("previewLoading"),
+  previewError: byId("previewError"),
+  previewImage: byId("previewImage"),
+  previewTitle: byId("previewTitle"),
+  openOriginalLink: byId("openOriginalLink"),
+  closePreviewBtn: byId("closePreviewBtn"),
+  closePreviewBtnBottom: byId("closePreviewBtnBottom"),
 };
 
 let allSources = []; // Сюда будем сохранять оригинальный список объявлений
@@ -67,6 +75,7 @@ function init() {
   bindFileInput();
   bindForm();
   bindFilters();
+  bindPreviewModal();
   setMode("manual");
 }
 
@@ -165,6 +174,36 @@ function bindFilters() {
 
   //Слушатель на ввод цены клиента (срабатывает сразу при печати)
   elements.clientPrice?.addEventListener("input", applyFilters);
+}
+
+function bindPreviewModal() {
+  elements.sourcesList?.addEventListener("click", (event) => {
+    const link = event.target.closest(".source-title");
+    if (!link) return;
+
+    const url = link.getAttribute("href");
+    if (!url || url === "#") return;
+
+    event.preventDefault();
+    openLinkPreview(url, link.textContent || "Скриншот страницы");
+  });
+
+  const closeButtons = [elements.closePreviewBtn, elements.closePreviewBtnBottom];
+  closeButtons.forEach((button) => {
+    button?.addEventListener("click", () => closeLinkPreview());
+  });
+
+  elements.linkPreviewModal?.addEventListener("click", (event) => {
+    if (event.target?.getAttribute("data-close-modal") === "true") {
+      closeLinkPreview();
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeLinkPreview();
+    }
+  });
 }
 
 
@@ -292,6 +331,57 @@ function cleanupPendingRequest() {
     timeoutId = null;
   }
   abortController = null;
+}
+
+function openLinkPreview(url, title) {
+  if (!elements.linkPreviewModal) return;
+
+  elements.previewTitle.textContent = title || "Предпросмотр страницы";
+  elements.openOriginalLink.href = url;
+  elements.openOriginalLink.setAttribute("aria-label", `Открыть оригинал ${title}`);
+  elements.previewError.classList.add("hidden");
+  elements.previewImage.classList.add("hidden");
+  elements.previewLoading.classList.remove("hidden");
+  elements.linkPreviewModal.classList.add("show");
+
+  fetchPreviewScreenshot(url)
+    .then((src) => {
+      elements.previewImage.src = src;
+      elements.previewImage.classList.remove("hidden");
+      elements.previewLoading.classList.add("hidden");
+    })
+    .catch((error) => {
+      elements.previewLoading.classList.add("hidden");
+      elements.previewError.textContent = String(error?.message || "Не удалось загрузить превью.");
+      elements.previewError.classList.remove("hidden");
+    });
+}
+
+function closeLinkPreview() {
+  if (!elements.linkPreviewModal) return;
+
+  elements.linkPreviewModal.classList.remove("show");
+  elements.previewImage.src = "";
+  elements.previewError.classList.add("hidden");
+  elements.previewLoading.classList.add("hidden");
+  elements.previewImage.classList.add("hidden");
+}
+
+async function fetchPreviewScreenshot(url) {
+  const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+  if (!response.ok) {
+    let detail = `Ошибка ${response.status}`;
+    try {
+      const payload = await response.json();
+      detail = payload.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 function startLoading() {
@@ -452,7 +542,7 @@ function renderSources(sources, setupFilters = true) {
       return `
         <div class="source-card">
           <div class="source-card-head">
-            <a class="source-title" href="${url}" target="_blank">${escapeHtml(title)}</a>
+            <a class="source-title" href="${url}" target="_blank" rel="noopener noreferrer" title="Открыть предпросмотр ${escapeHtml(title)}">${escapeHtml(title)}</a>
             <div class="source-price ${priceClass}">${escapeHtml(priceStr)}</div>
           </div>
           <div class="source-meta">

@@ -446,6 +446,136 @@ input::placeholder {
     word-break: break-word;
 }
 
+.modal {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 9999;
+    padding: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.modal.show {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.modal-panel {
+    position: relative;
+    width: min(100%, 920px);
+    max-width: 920px;
+    max-height: calc(100vh - 80px);
+    background: rgba(15, 23, 42, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 22px;
+    padding: 22px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 1;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+
+.modal-header h3 {
+    font-size: 18px;
+    margin: 0;
+}
+
+.modal-close {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(15, 23, 42, 0.9);
+    color: var(--text);
+    font-size: 22px;
+    cursor: pointer;
+}
+
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: hidden;
+}
+
+.preview-loading,
+.preview-error {
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 20px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.preview-error {
+    color: var(--danger);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.preview-image {
+    width: 100%;
+    max-height: calc(100vh - 260px);
+    object-fit: contain;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #020617;
+}
+
+.preview-image.hidden,
+.preview-error.hidden,
+.preview-loading.hidden {
+    display: none;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.button {
+    padding: 12px 18px;
+    border-radius: 14px;
+    border: none;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 14px;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    color: white;
+}
+
+.button-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 @keyframes spin {
     to { transform: rotate(360deg); }
 }
