@@ -10,6 +10,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException
 
+# Импортируем авто-менеджер для скачивания ChromeDriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
+
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.core.utils import is_valid_url
@@ -51,6 +55,8 @@ class SeleniumFetcher:
             self._options.add_argument("--disable-logging")
             self._options.add_argument("--disable-dev-shm-usage")
             self._options.add_experimental_option("excludeSwitches", ["enable-logging"])
+            self._options.page_load_strategy = "eager"
+            
             chrome_bin = self._resolve_binary(
                 "CHROME_BIN",
                 ["chromium", "chromium-browser", "google-chrome", "chrome"],
@@ -59,9 +65,9 @@ class SeleniumFetcher:
                 self._options.binary_location = chrome_bin
                 logger.info("chromium binary resolved: %s", chrome_bin)
             self._options.add_argument(
-            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-        )
+                "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            )
         return self._options
 
     def _is_driver_alive(self) -> bool:
@@ -85,7 +91,7 @@ class SeleniumFetcher:
         self.driver = None  # Принудительно создадим новый экземпляр
     
     def _get_driver(self) -> webdriver.Chrome:
-        """Возвращает существующий ChromeDriver или создает новый после проверки состояния."""
+        """Возвращает существующий ChromeDriver или создает новый с авто-загрузкой."""
         if self.driver and self._is_driver_alive():
             return self.driver
         
@@ -95,13 +101,19 @@ class SeleniumFetcher:
             self.close()
         
         try:
+            # Сначала проверяем, задан ли CHROMEDRIVER_PATH вручную в окружении
             driver_bin = self._resolve_binary("CHROMEDRIVER_PATH", ["chromedriver"])
-            if not driver_bin:
-                raise RuntimeError(
-                    "ChromeDriver not found. Set CHROMEDRIVER_PATH or make chromedriver available in PATH."
-                )
-            logger.info("chromedriver binary resolved: %s", driver_bin)
-            self.driver = webdriver.Chrome(service=Service(driver_bin), options=self._get_options())
+            
+            if driver_bin:
+                logger.info("Using manually resolved chromedriver: %s", driver_bin)
+                service_obj = Service(driver_bin)
+            else:
+                # Если в системе пути нет, webdriver-manager скачает нужный драйвер сам в фоне
+                logger.info("Chromedriver not found locally. Resolving via webdriver-manager...")
+                service_obj = ChromeService(ChromeDriverManager().install())
+            
+            self.driver = webdriver.Chrome(service=service_obj, options=self._get_options())
+            
             # Настраиваем таймауты
             self.driver.set_page_load_timeout(CONFIG.page_load_timeout)
             self.driver.implicitly_wait(CONFIG.implicit_wait)
@@ -130,6 +142,78 @@ class SeleniumFetcher:
             finally:
                 self.driver = None
 
+    def capture_screenshot(
+        self,
+        url: str,
+        viewport_width: int = 1280,
+        viewport_height: int = 900,
+        max_height: int = 2400,
+        scroll_times: int = 2,
+        wait: float = 1.0,
+    ) -> Optional[bytes]:
+        """Снимает скриншот страницы через Selenium и возвращает PNG-байты."""
+        if not is_valid_url(url):
+            logger.warning(f"Invalid URL for screenshot: {url}")
+            return None
+
+        for attempt in range(self._max_restart_attempts):
+            try:
+                driver = self._get_driver()
+                driver.set_page_load_timeout(CONFIG.page_load_timeout)
+                driver.get(url)
+                time.sleep(wait)
+
+                for _ in range(max(0, scroll_times)):
+                    try:
+                        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                        time.sleep(wait)
+                    except Exception as scroll_err:
+                        logger.debug(f"Screenshot scroll failed for {url}: {scroll_err}")
+                        break
+
+                full_height = driver.execute_script(
+                    "return Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.documentElement.clientHeight);"
+                )
+                if not isinstance(full_height, (int, float)) or full_height <= 0:
+                    full_height = viewport_height
+                full_height = min(int(full_height), max_height)
+                driver.set_window_size(viewport_width, max(viewport_height, full_height))
+                time.sleep(0.25)
+                driver.execute_script("window.scrollTo(0, 0);")
+                time.sleep(0.25)
+                return driver.get_screenshot_as_png()
+
+            except TimeoutException as e:
+                # СПАСАТЕЛЬНАЯ ОПЕРАЦИЯ: Сайт завис, но мы пробуем сфоткать то, что успело отрендериться
+                logger.warning(f"Timeout while capturing screenshot for {url} (Attempt {attempt + 1}), trying to force capture fallback...")
+                try:
+                    if driver:
+                        # Пытаемся забрать скриншот текущего состояния страницы прямо сейчас
+                        fallback_png = driver.get_screenshot_as_png()
+                        logger.info(f"Successfully recovered partial screenshot for {url} despite timeout.")
+                        return fallback_png
+                except Exception as fallback_err:
+                    logger.error(f"Failed to grab partial screenshot on timeout: {fallback_err}")
+
+                # Если даже частичный скриншот сделать не вышло, перезапускаем драйвер по твоей логике
+                if attempt < self._max_restart_attempts - 1:
+                    self._restart_driver()
+                    time.sleep(1)
+                    continue
+                return None
+                
+            except Exception as e:
+                logger.error(f"Failed to capture screenshot for {url}: {e}")
+                if not self._is_driver_alive():
+                    logger.warning("Driver died during screenshot capture, restarting...")
+                    self._restart_driver()
+                    if attempt < self._max_restart_attempts - 1:
+                        continue
+                return None
+
+        logger.error(f"Failed to capture screenshot for {url} after {self._max_restart_attempts} attempts")
+        return None
+
     def fetch_page(
         self,
         url: str,
@@ -145,27 +229,26 @@ class SeleniumFetcher:
             try:
                 driver = self._get_driver()
                 
-                # Пытаемся загрузить страницу с таймаутом
+                # Пытаемся загрузить страницу с таймаутом
                 try:
                     driver.set_page_load_timeout(CONFIG.page_load_timeout)
                     driver.get(url)
                 except TimeoutException:
-                    # Если загрузка превысила таймаут, пытаемся взять частичный контент
+                    # Если загрузка превышает таймаут, пытаемся получить часть контента
                     logger.warning(f"Page load timeout for {url}, trying to get partial content...")
                     try:
-                        # Пытаемся все равно получить HTML страницы
+                        # Пытаемся все равно получить контент
                         return driver.page_source
                     except Exception as e:
                         logger.debug(f"Could not get partial content: {e}")
-                        # Проверяем, жив ли драйвер
+                         # Проверяем, жив ли драйвер
                         if not self._is_driver_alive():
                             logger.warning("Driver died after timeout, restarting...")
                             self._restart_driver()
                             if attempt < self._max_restart_attempts - 1:
                                 continue
                         return None
-                
-                # Скроллим страницу с защитой от зависаний
+                # Скроллим страницу с защитой от зависания
                 try:
                     last_height = driver.execute_script("return document.body.scrollHeight")
                     
@@ -184,9 +267,9 @@ class SeleniumFetcher:
                                 logger.warning("Driver died during scroll, restarting...")
                                 self._restart_driver()
                                 if attempt < self._max_restart_attempts - 1:
-                                    break  # Прерываем цикл скролла и повторяем загрузку
+                                    break # Прерываем цикл скролла и повторяем загрузку
                             else:
-                                break  # Просто выходим из скролла и продолжаем с текущим HTML
+                                break # Просто выходим из скролла
                 except Exception as scroll_err:
                     logger.debug(f"Scroll failed for {url}: {scroll_err}")
                     # Проверяем, жив ли драйвер
@@ -197,7 +280,7 @@ class SeleniumFetcher:
                             continue
                     # Все равно продолжаем: часть контента уже могла загрузиться
                 
-                # HTML успешно получен
+                # html успешно загружен
                 try:
                     return driver.page_source
                 except Exception as e:
@@ -218,7 +301,7 @@ class SeleniumFetcher:
                 return None
             except Exception as e:
                 error_str = str(e).lower()
-                # Проверяем ошибки соединения
+                # Проверка ошибок соединения
                 if any(keyword in error_str for keyword in [
                     "connection", "winerror 10061", "refused", 
                     "newconnectionerror", "max retries exceeded"
@@ -226,18 +309,18 @@ class SeleniumFetcher:
                     logger.warning(f"Connection error loading {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
                         self._restart_driver()
-                        time.sleep(2)  # Для проблем соединения ждем чуть дольше
+                        time.sleep(2)
                         continue
                     return None
                 else:
                     logger.error(f"Failed to load {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
-                        # Для прочих ошибок тоже пробуем один перезапуск
+                        # 1 перезапуск для прочих ошибок
                         self._restart_driver()
                         time.sleep(1)
                         continue
                     return None
         
-        # Все попытки исчерпаны
+        # Попытки исчерпаны
         logger.error(f"Failed to load {url} after {self._max_restart_attempts} attempts")
         return None

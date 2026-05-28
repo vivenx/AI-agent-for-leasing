@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -25,7 +25,9 @@ from leasing_analyzer.core.logging import get_logger, setup_logging
 setup_logging()
 
 from leasing_analyzer.document.service import analyze_document
+from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.pipeline import run_analysis
+from leasing_analyzer.core.utils import is_safe_external_url
 
 logger = get_logger(__name__)
 memory_service = None
@@ -254,6 +256,36 @@ async def root() -> HTMLResponse:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/link-preview")
+@limiter.limit("20/minute")
+async def preview_link(request: Request, url: str) -> Response:
+    if not is_safe_external_url(url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Неверный или небезопасный URL.",
+        )
+
+    fetcher = SeleniumFetcher()
+    try:
+        screenshot = fetcher.capture_screenshot(url)
+        if not screenshot:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Не удалось сформировать превью страницы.",
+            )
+        return Response(content=screenshot, media_type="image/png")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Ошибка создания превью для URL %s: %s", url, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Внутренняя ошибка при формировании превью.",
+        )
+    finally:
+        fetcher.close()
 
 
 @app.post("/api/session/start", response_model=StartSessionResponse)
