@@ -575,7 +575,9 @@ function renderSources(sources, setupFilters = true) {
       return `
         <div class="source-card">
           <div class="source-card-head">
-            <a class="source-title" href="${url}" target="_blank" rel="noopener noreferrer" title="Открыть предпросмотр ${escapeHtml(title)}">${escapeHtml(title)}</a>
+            <a class="source-title source-link-preview" href="${url}" data-tooltip="Открыть безопасный предпросмотр">
+              ${escapeHtml(title)}
+            </a>
             <div class="source-price ${priceClass}">${escapeHtml(priceStr)}</div>
           </div>
           <div class="source-meta">
