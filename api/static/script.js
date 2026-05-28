@@ -336,38 +336,71 @@ function cleanupPendingRequest() {
 function openLinkPreview(url, title) {
   if (!elements.linkPreviewModal) return;
 
-  elements.previewTitle.textContent = title || "Предпросмотр страницы";
-  elements.openOriginalLink.href = url;
-  elements.openOriginalLink.setAttribute("aria-label", `Открыть оригинал ${title}`);
-  elements.previewError.classList.add("hidden");
-  elements.previewImage.classList.add("hidden");
-  elements.previewLoading.classList.remove("hidden");
-  elements.linkPreviewModal.classList.add("show");
+  // 1. Настраиваем заголовки и оригинальную ссылку
+  if (elements.previewTitle) {
+    elements.previewTitle.textContent = title || "Предпросмотр страницы";
+  }
+  if (elements.openOriginalLink) {
+    elements.openOriginalLink.href = url;
+    elements.openOriginalLink.setAttribute("aria-label", `Открыть оригинал ${title || 'страницы'}`);
+  }
 
+  // 2. Сбрасываем состояния: прячем старую картинку/ошибки, включаем новый скелетон
+  elements.previewError?.classList.add("hidden");
+  elements.previewImage?.classList.add("hidden");
+  elements.previewLoading?.classList.remove("hidden");
+
+  // Ставим красивый стартовый текст в индикатор загрузки
+  const loadingTextElem = elements.linkPreviewModal.querySelector(".loading-text");
+  if (loadingTextElem) {
+    loadingTextElem.textContent = "Инициализация безопасного окружения...";
+  }
+
+  // 3. Открываем модальное окно (добавляем класс show)
+  elements.linkPreviewModal.classList.add("show");
+  document.body.style.overflow = "hidden"; // Запрещаем скролл основной страницы под модалкой
+
+  // 4. Запрашиваем скриншот у бэкенда
   fetchPreviewScreenshot(url)
     .then((src) => {
-      elements.previewImage.src = src;
-      elements.previewImage.classList.remove("hidden");
-      elements.previewLoading.classList.add("hidden");
+      if (elements.previewImage) {
+        elements.previewImage.src = src;
+        
+        // Ждем, пока браузер физически отрисует картинку из blob-ссылки
+        elements.previewImage.onload = () => {
+          elements.previewLoading?.classList.add("hidden"); // Тушим скелетон
+          elements.previewImage?.classList.remove("hidden"); // Показываем готовый скриншот
+        };
+      }
     })
     .catch((error) => {
-      elements.previewLoading.classList.add("hidden");
-      elements.previewError.textContent = String(error?.message || "Не удалось загрузить превью.");
-      elements.previewError.classList.remove("hidden");
+      console.error("Ошибка безопасного превью:", error);
+      elements.previewLoading?.classList.add("hidden");
+      if (elements.previewError) {
+        elements.previewError.textContent = "Система защиты: Не удалось выполнить рендеринг страницы. Вы можете открыть оригинал ссылки на свой страх и риск.";
+        elements.previewError.classList.remove("hidden");
+      }
     });
 }
 
 function closeLinkPreview() {
   if (!elements.linkPreviewModal) return;
 
+  // Закрываем окно, очищаем картинку и возвращаем скролл страницы
   elements.linkPreviewModal.classList.remove("show");
-  elements.previewImage.src = "";
-  elements.previewError.classList.add("hidden");
-  elements.previewLoading.classList.add("hidden");
-  elements.previewImage.classList.add("hidden");
+  document.body.style.overflow = ""; 
+  
+  if (elements.previewImage) {
+    elements.previewImage.src = "";
+  }
+  
+  elements.previewError?.classList.add("hidden");
+  elements.previewLoading?.classList.add("hidden");
+  elements.previewImage?.classList.add("hidden");
 }
 
 async function fetchPreviewScreenshot(url) {
+  // Важно: твой бэкенд на FastAPI/Flask принимает роут /api/link-preview, так что оставляем его
   const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
   if (!response.ok) {
     let detail = `Ошибка ${response.status}`;
