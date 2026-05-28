@@ -769,6 +769,7 @@ input[type=number] {
     flex-grow: 1;
     padding: 30px;
     box-sizing: border-box;
+    border-radius: 12px;
 }
 
 /* Возвращаем колесику круглую форму, правильные размеры и вращение */
