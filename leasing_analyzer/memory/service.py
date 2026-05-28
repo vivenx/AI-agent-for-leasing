@@ -5,6 +5,7 @@ from typing import Optional
 
 from leasing_analyzer.core.config import CONFIG
 from leasing_analyzer.core.logging import get_logger
+from leasing_analyzer.core.utils import clean_analog_name
 from leasing_analyzer.memory.models import MemoryContext
 from leasing_analyzer.memory.repository import MemoryRepository
 
@@ -109,7 +110,14 @@ class MemoryService:
 
         try:
             market = result.get("market_report") or {}
-            analogs = result.get("analogs_suggested") or market.get("analogs_suggested") or []
+            analogs = []
+            seen_analogs = set()
+            for analog in result.get("analogs_suggested") or market.get("analogs_suggested") or []:
+                cleaned = clean_analog_name(analog)
+                key = cleaned.lower()
+                if cleaned and key not in seen_analogs:
+                    analogs.append(cleaned)
+                    seen_analogs.add(key)
             item_name = result.get("item") or market.get("item")
             median = market.get("median_price")
             price_range = market.get("market_range")

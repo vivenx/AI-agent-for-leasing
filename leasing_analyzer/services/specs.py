@@ -10,7 +10,7 @@ from leasing_analyzer.core.logging import get_logger
 from leasing_analyzer.parsing.content_cleaner import ContentCleaner
 
 from leasing_analyzer.services.fetcher import SeleniumFetcher
-from leasing_analyzer.services.search import search_google
+from leasing_analyzer.services.search import filter_available_results, search_google
 
 
 logger = get_logger(__name__)
@@ -33,7 +33,7 @@ def search_specs_sites(item_name: str, num_sites: int = 5) -> list[dict]:
     seen_urls = set()
     
     for query in queries[:2]:  # Используем только первые 2 запроса, чтобы не плодить лишние обращения
-        results = search_google(query, num_results=num_sites)
+        results = search_google(query, num_results=num_sites, reject_noisy_markers=False)
         for result in results:
             url = result.get("link", "")
             if url and url not in seen_urls:
@@ -52,7 +52,8 @@ def search_specs_sites(item_name: str, num_sites: int = 5) -> list[dict]:
         if len(all_results) >= num_sites:
             break
     
-    logger.info(f"Found {len(all_results)} specs sites for {item_name}")
+    all_results = filter_available_results(all_results[:num_sites])
+    logger.info(f"Found {len(all_results)} reachable specs sites for {item_name}")
     return all_results[:num_sites]
 
 

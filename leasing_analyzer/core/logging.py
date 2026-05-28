@@ -53,4 +53,5 @@ def setup_logging() -> None:
 
 
 def get_logger(name: str) -> logging.Logger:
+    setup_logging()
     return logging.getLogger(name)

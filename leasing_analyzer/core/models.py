@@ -11,6 +11,10 @@ class BasicParseResult(TypedDict, total=False):
     power: str
     mileage: str
     vendor: str
+    seller_name: str
+    seller_phone: str
+    seller_email: str
+    seller_profile_url: str
 
 
 class AIAnalysisResult(TypedDict, total=False):
@@ -27,6 +31,10 @@ class AIAnalysisResult(TypedDict, total=False):
     pros: list[str]
     cons: list[str]
     analogs_mentioned: list[str]
+    seller_name: str
+    seller_phone: str
+    seller_email: str
+    seller_profile_url: str
 
 
 class AnalogReview(TypedDict, total=False):
@@ -106,6 +114,10 @@ class LeasingOffer:
     vendor: Optional[str] = None
     condition: Optional[str] = None
     location: Optional[str] = None
+    seller_name: Optional[str] = None
+    seller_phone: Optional[str] = None
+    seller_email: Optional[str] = None
+    seller_profile_url: Optional[str] = None
     specs: dict = field(default_factory=dict)
     category: Optional[str] = None
     currency: Optional[str] = None

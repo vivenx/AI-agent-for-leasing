@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
+import shutil
 import time
 from typing import Optional
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException
 
 from leasing_analyzer.core.config import CONFIG
@@ -20,6 +23,21 @@ class SeleniumFetcher:
         self.driver: Optional[webdriver.Chrome] = None
         self._options: Optional[Options] = None
         self._max_restart_attempts = 3
+
+    @staticmethod
+    def _resolve_binary(env_name: str, candidates: list[str]) -> Optional[str]:
+        configured_path = os.getenv(env_name)
+        if configured_path:
+            if os.path.exists(configured_path):
+                return configured_path
+            logger.warning("%s is set but does not exist: %s", env_name, configured_path)
+
+        for candidate in candidates:
+            resolved_path = shutil.which(candidate)
+            if resolved_path:
+                return resolved_path
+
+        return None
     
     def _get_options(self) -> Options:
         """Возвращает настройки Chrome с ленивой инициализацией."""
@@ -33,6 +51,13 @@ class SeleniumFetcher:
             self._options.add_argument("--disable-logging")
             self._options.add_argument("--disable-dev-shm-usage")
             self._options.add_experimental_option("excludeSwitches", ["enable-logging"])
+            chrome_bin = self._resolve_binary(
+                "CHROME_BIN",
+                ["chromium", "chromium-browser", "google-chrome", "chrome"],
+            )
+            if chrome_bin:
+                self._options.binary_location = chrome_bin
+                logger.info("chromium binary resolved: %s", chrome_bin)
             self._options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
@@ -70,12 +95,19 @@ class SeleniumFetcher:
             self.close()
         
         try:
-            self.driver = webdriver.Chrome(options=self._get_options())
+            driver_bin = self._resolve_binary("CHROMEDRIVER_PATH", ["chromedriver"])
+            if not driver_bin:
+                raise RuntimeError(
+                    "ChromeDriver not found. Set CHROMEDRIVER_PATH or make chromedriver available in PATH."
+                )
+            logger.info("chromedriver binary resolved: %s", driver_bin)
+            self.driver = webdriver.Chrome(service=Service(driver_bin), options=self._get_options())
             # Настраиваем таймауты
             self.driver.set_page_load_timeout(CONFIG.page_load_timeout)
             self.driver.implicitly_wait(CONFIG.implicit_wait)
             self.driver.set_script_timeout(CONFIG.script_timeout)
-            logger.debug("Chrome driver created successfully")
+            logger.info("chromium loaded")
+            logger.info("chromedriver ready")
             return self.driver
         except Exception as e:
             logger.error(f"Failed to create Chrome driver: {e}")
