@@ -14,57 +14,10 @@ from leasing_analyzer.core.utils import (
     normalize_whitespace,
     safe_json_loads,
 )
-from leasing_analyzer.parsing.helpers import create_offer_from_merged
+from leasing_analyzer.parsing.helpers import create_offer_from_merged, is_relevant_offer_text
 
 
-def is_relevant_avito_title(title: str, model_name: str) -> bool:
-    """Checks whether the title contains all target model keywords."""
-    title_lower = title.lower()
-    
-    excluded_keywords = ["запчаст", "разбор", "детал", "по запчастям", "разборка"]
-    if any(word in title_lower for word in excluded_keywords):
-        return False
-        
-    if not model_name:
-        return True
-    ignore_words = {"два", "две", "три", "четыре", "пять", "шт", "штук", "штуки"}
-    
-    keywords = []
-    for word in re.split(r"\s+", model_name.lower()):
-        if not word:
-            continue
-        if word in ignore_words:
-            continue
-        if word.isdigit() and int(word) < 100:
-            continue
-        keywords.append(word)
 
-    mapping = {
-        "man": ["man", "ман"],
-        "tgs": ["tgs", "тгс"],
-        "tgx": ["tgx", "тгх"],
-        "daf": ["daf", "даф"],
-        "volvo": ["volvo", "вольво"],
-        "scania": ["scania", "скания"],
-        "mercedes": ["mercedes", "мерседес"],
-        "benz": ["benz", "бенц"],
-        "kamaz": ["kamaz", "камаз"],
-        "maz": ["maz", "маз"],
-        "gaz": ["gaz", "газ"],
-        "ural": ["ural", "урал"],
-        "sitrak": ["sitrak", "ситрак"],
-        "shacman": ["shacman", "шакман", "шахман"],
-        "faw": ["faw", "фав"],
-        "howo": ["howo", "хово"],
-        "dongfeng": ["dongfeng", "донгфенг", "донфенг"],
-    }
-
-    for kw in keywords:
-        variants = mapping.get(kw, [kw])
-        if not any(variant in title_lower for variant in variants):
-            return False
-
-    return True
 
 
 def extract_offers_from_ld_json(html: str) -> list[dict]:
@@ -178,7 +131,8 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
             continue
 
         title = normalize_whitespace(title_tag.get_text(" ", strip=True))
-        if not is_relevant_avito_title(title, model_name):
+        subtitle = card.get_text(" ", strip=True)
+        if not is_relevant_offer_text(f"{title} {subtitle}", model_name):
             continue
 
         href = title_tag.get("href") or ""
@@ -193,7 +147,6 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         location_tag = card.select_one('[data-marker="item-location"]')
         location = normalize_whitespace(location_tag.get_text(" ", strip=True)) if location_tag else None
 
-        subtitle = card.get_text(" ", strip=True)
         year = _extract_year_from_text(subtitle)
         power = _extract_power(subtitle)
         mileage = _extract_mileage(subtitle)
@@ -221,11 +174,12 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
 
     for item in extract_offers_from_ld_json(html):
         name = normalize_whitespace(item.get("name", "") or item.get("title", ""))
+        description = normalize_whitespace(item.get("description", ""))
         href = item.get("url") or item.get("mainEntityOfPage") or ""
         price_val = digits_to_int(str(item.get("price", "")))
         if not name and not href:
             continue
-        if not is_relevant_avito_title(name, model_name):
+        if not is_relevant_offer_text(f"{name} {description}", model_name):
             continue
 
         merged_data = {
