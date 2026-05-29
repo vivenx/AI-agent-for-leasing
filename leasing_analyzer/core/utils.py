@@ -166,35 +166,6 @@ def is_valid_url(url: str) -> bool:
         return False
 
 
-def is_safe_external_url(url: str) -> bool:
-    if not is_valid_url(url):
-        return False
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return False
-
-    hostname = (parsed.hostname or "").strip().lower()
-    if not hostname:
-        return False
-    if hostname in {"localhost", "127.0.0.1", "::1"}:
-        return False
-    if hostname.endswith(".localhost"):
-        return False
-
-    try:
-        import ipaddress
-
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
-            return False
-    except ValueError:
-        pass
-    except Exception:
-        return False
-
-    return True
-
-
 def normalize_url(url: str, base: str = "https://www.avito.ru") -> str:
     if not url:
         return url
@@ -363,12 +334,7 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
     if not model_name:
         return True
     title_lower = title.lower()
-    ignore_words = {"два", "две", "три", "четыре", "пять", "шт", "штук", "штуки"}
-    keywords = []
-    for word in re.split(r"\s+", model_name.lower()):
-        if not word or word in ignore_words or (word.isdigit() and int(word) < 100):
-            continue
-        keywords.append(word)
+    keywords = [w for w in re.split(r"\s+", model_name.lower()) if w]
     return all(keyword in title_lower for keyword in keywords)
 
 

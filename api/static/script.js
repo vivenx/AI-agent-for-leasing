@@ -39,14 +39,6 @@ const elements = {
   uiFilters: byId("ui-filters"),
   filterMaxPrice: byId("filterMaxPrice"),
   filterYear: byId("filterYear"),
-  linkPreviewModal: byId("linkPreviewModal"),
-  previewLoading: byId("previewLoading"),
-  previewError: byId("previewError"),
-  previewImage: byId("previewImage"),
-  previewTitle: byId("previewTitle"),
-  openOriginalLink: byId("openOriginalLink"),
-  closePreviewBtn: byId("closePreviewBtn"),
-  closePreviewBtnBottom: byId("closePreviewBtnBottom"),
 };
 
 let allSources = []; // Сюда будем сохранять оригинальный список объявлений
@@ -75,7 +67,6 @@ function init() {
   bindFileInput();
   bindForm();
   bindFilters();
-  bindPreviewModal();
   setMode("manual");
 }
 
@@ -174,36 +165,6 @@ function bindFilters() {
 
   //Слушатель на ввод цены клиента (срабатывает сразу при печати)
   elements.clientPrice?.addEventListener("input", applyFilters);
-}
-
-function bindPreviewModal() {
-  elements.sourcesList?.addEventListener("click", (event) => {
-    const link = event.target.closest(".source-title");
-    if (!link) return;
-
-    const url = link.getAttribute("href");
-    if (!url || url === "#") return;
-
-    event.preventDefault();
-    openLinkPreview(url, link.textContent || "Скриншот страницы");
-  });
-
-  const closeButtons = [elements.closePreviewBtn, elements.closePreviewBtnBottom];
-  closeButtons.forEach((button) => {
-    button?.addEventListener("click", () => closeLinkPreview());
-  });
-
-  elements.linkPreviewModal?.addEventListener("click", (event) => {
-    if (event.target?.getAttribute("data-close-modal") === "true") {
-      closeLinkPreview();
-    }
-  });
-
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      closeLinkPreview();
-    }
-  });
 }
 
 
@@ -331,90 +292,6 @@ function cleanupPendingRequest() {
     timeoutId = null;
   }
   abortController = null;
-}
-
-function openLinkPreview(url, title) {
-  if (!elements.linkPreviewModal) return;
-
-  // 1. Настраиваем заголовки и оригинальную ссылку
-  if (elements.previewTitle) {
-    elements.previewTitle.textContent = title || "Предпросмотр страницы";
-  }
-  if (elements.openOriginalLink) {
-    elements.openOriginalLink.href = url;
-    elements.openOriginalLink.setAttribute("aria-label", `Открыть оригинал ${title || 'страницы'}`);
-  }
-
-  // 2. Сбрасываем состояния: прячем старую картинку/ошибки, включаем новый скелетон
-  elements.previewError?.classList.add("hidden");
-  elements.previewImage?.classList.add("hidden");
-  elements.previewLoading?.classList.remove("hidden");
-
-  // Ставим красивый стартовый текст в индикатор загрузки
-  const loadingTextElem = elements.linkPreviewModal.querySelector(".loading-text");
-  if (loadingTextElem) {
-    loadingTextElem.textContent = "Инициализация безопасного окружения...";
-  }
-
-  // 3. Открываем модальное окно (добавляем класс show)
-  elements.linkPreviewModal.classList.add("show");
-  document.body.style.overflow = "hidden"; // Запрещаем скролл основной страницы под модалкой
-
-  // 4. Запрашиваем скриншот у бэкенда
-  fetchPreviewScreenshot(url)
-    .then((src) => {
-      if (elements.previewImage) {
-        elements.previewImage.src = src;
-        
-        // Ждем, пока браузер физически отрисует картинку из blob-ссылки
-        elements.previewImage.onload = () => {
-          elements.previewLoading?.classList.add("hidden"); // Тушим скелетон
-          elements.previewImage?.classList.remove("hidden"); // Показываем готовый скриншот
-        };
-      }
-    })
-    .catch((error) => {
-      console.error("Ошибка безопасного превью:", error);
-      elements.previewLoading?.classList.add("hidden");
-      if (elements.previewError) {
-        elements.previewError.textContent = "Система защиты: Не удалось выполнить рендеринг страницы. Вы можете открыть оригинал ссылки на свой страх и риск.";
-        elements.previewError.classList.remove("hidden");
-      }
-    });
-}
-
-function closeLinkPreview() {
-  if (!elements.linkPreviewModal) return;
-
-  // Закрываем окно, очищаем картинку и возвращаем скролл страницы
-  elements.linkPreviewModal.classList.remove("show");
-  document.body.style.overflow = ""; 
-  
-  if (elements.previewImage) {
-    elements.previewImage.src = "";
-  }
-  
-  elements.previewError?.classList.add("hidden");
-  elements.previewLoading?.classList.add("hidden");
-  elements.previewImage?.classList.add("hidden");
-}
-
-async function fetchPreviewScreenshot(url) {
-  // Важно: твой бэкенд на FastAPI/Flask принимает роут /api/link-preview, так что оставляем его
-  const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
-  if (!response.ok) {
-    let detail = `Ошибка ${response.status}`;
-    try {
-      const payload = await response.json();
-      detail = payload.detail || detail;
-    } catch {
-      // ignore
-    }
-    throw new Error(detail);
-  }
-
-  const blob = await response.blob();
-  return URL.createObjectURL(blob);
 }
 
 function startLoading() {
@@ -575,9 +452,7 @@ function renderSources(sources, setupFilters = true) {
       return `
         <div class="source-card">
           <div class="source-card-head">
-            <a class="source-title source-link-preview" href="${url}" data-tooltip="Открыть безопасный предпросмотр">
-              ${escapeHtml(title)}
-            </a>
+            <a class="source-title" href="${url}" target="_blank">${escapeHtml(title)}</a>
             <div class="source-price ${priceClass}">${escapeHtml(priceStr)}</div>
           </div>
           <div class="source-meta">

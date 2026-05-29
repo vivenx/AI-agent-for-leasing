@@ -20,10 +20,8 @@ logger = get_logger(__name__)
 
 
 def extract_model_from_query(query: str) -> str:
-    if not query:
-        return ""
     parts = query.split()
-    return " ".join(parts[:6])
+    return " ".join(parts[:2]) if parts else ""
 
 
 def get_user_input() -> UserInput:
