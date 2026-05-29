@@ -21,7 +21,7 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
     """Checks whether the title contains all target model keywords."""
     title_lower = title.lower()
     
-    excluded_keywords = ["аренд", "продаж", "прокат", "рефрижератор", "запчаст", "разбор", "детал"]
+    excluded_keywords = ["запчаст", "разбор", "детал", "по запчастям", "разборка"]
     if any(word in title_lower for word in excluded_keywords):
         return False
         
@@ -38,8 +38,33 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
         if word.isdigit() and int(word) < 100:
             continue
         keywords.append(word)
-        
-    return all(keyword in title_lower for keyword in keywords)
+
+    mapping = {
+        "man": ["man", "ман"],
+        "tgs": ["tgs", "тгс"],
+        "tgx": ["tgx", "тгх"],
+        "daf": ["daf", "даф"],
+        "volvo": ["volvo", "вольво"],
+        "scania": ["scania", "скания"],
+        "mercedes": ["mercedes", "мерседес"],
+        "benz": ["benz", "бенц"],
+        "kamaz": ["kamaz", "камаз"],
+        "maz": ["maz", "маз"],
+        "gaz": ["gaz", "газ"],
+        "ural": ["ural", "урал"],
+        "sitrak": ["sitrak", "ситрак"],
+        "shacman": ["shacman", "шакман", "шахман"],
+        "faw": ["faw", "фав"],
+        "howo": ["howo", "хово"],
+        "dongfeng": ["dongfeng", "донгфенг", "донфенг"],
+    }
+
+    for kw in keywords:
+        variants = mapping.get(kw, [kw])
+        if not any(variant in title_lower for variant in variants):
+            return False
+
+    return True
 
 
 def extract_offers_from_ld_json(html: str) -> list[dict]:
