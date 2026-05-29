@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import time
+import threading
 from typing import Optional
 
 from selenium import webdriver
@@ -20,9 +21,23 @@ class SeleniumFetcher:
     """Загрузчик страниц на базе Selenium с ленивой инициализацией и автовосстановлением."""
     
     def __init__(self):
-        self.driver: Optional[webdriver.Chrome] = None
+        self._local = threading.local()
+        self._drivers = []
+        self._drivers_lock = threading.Lock()
         self._options: Optional[Options] = None
         self._max_restart_attempts = 3
+
+    @property
+    def driver(self) -> Optional[webdriver.Chrome]:
+        return getattr(self._local, "driver", None)
+
+    @driver.setter
+    def driver(self, value: Optional[webdriver.Chrome]):
+        self._local.driver = value
+        if value is not None:
+            with self._drivers_lock:
+                if value not in self._drivers:
+                    self._drivers.append(value)
 
     @staticmethod
     def _resolve_binary(env_name: str, candidates: list[str]) -> Optional[str]:
@@ -80,7 +95,11 @@ class SeleniumFetcher:
     def _restart_driver(self):
         """Перезапускает драйвер после ошибки соединения."""
         logger.warning("Restarting Chrome driver due to connection issues...")
-        self.close()
+        if self.driver:
+            self._close_single_driver(self.driver)
+            with self._drivers_lock:
+                if self.driver in self._drivers:
+                    self._drivers.remove(self.driver)
         time.sleep(2)  # Даем ChromeDriver полностью завершиться
         self.driver = None  # Принудительно создадим новый экземпляр
     
@@ -92,7 +111,11 @@ class SeleniumFetcher:
         # Драйвер умер или отсутствует, создаем новый
         if self.driver:
             logger.warning("Driver is not responsive, recreating...")
-            self.close()
+            self._close_single_driver(self.driver)
+            with self._drivers_lock:
+                if self.driver in self._drivers:
+                    self._drivers.remove(self.driver)
+            self.driver = None
         
         try:
             driver_bin = self._resolve_binary("CHROMEDRIVER_PATH", ["chromedriver"])
@@ -115,20 +138,27 @@ class SeleniumFetcher:
             raise
 
     def close(self):
-        """Закрывает драйвер и освобождает ресурсы."""
-        if self.driver:
-            service = getattr(self.driver, "service", None)
-            process = getattr(service, "process", None)
-            service_alive = bool(process is not None and process.poll() is None)
-            try:
-                if service_alive and getattr(self.driver, "session_id", None):
-                    self.driver.quit()
-                elif service and hasattr(service, "stop"):
-                    service.stop()
-            except Exception as e:
-                logger.debug(f"Error closing driver: {e}")
-            finally:
-                self.driver = None
+        """Закрывает все драйверы и освобождает ресурсы."""
+        with self._drivers_lock:
+            for d in self._drivers:
+                self._close_single_driver(d)
+            self._drivers.clear()
+        # Reset local driver as well to be safe
+        self.driver = None
+
+    def _close_single_driver(self, driver: webdriver.Chrome):
+        if not driver:
+            return
+        service = getattr(driver, "service", None)
+        process = getattr(service, "process", None)
+        service_alive = bool(process is not None and process.poll() is None)
+        try:
+            if service_alive and getattr(driver, "session_id", None):
+                driver.quit()
+            elif service and hasattr(service, "stop"):
+                service.stop()
+        except Exception as e:
+            logger.debug(f"Error closing driver: {e}")
 
     def fetch_page(
         self,
