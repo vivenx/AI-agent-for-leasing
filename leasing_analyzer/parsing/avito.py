@@ -19,10 +19,26 @@ from leasing_analyzer.parsing.helpers import create_offer_from_merged
 
 def is_relevant_avito_title(title: str, model_name: str) -> bool:
     """Checks whether the title contains all target model keywords."""
+    title_lower = title.lower()
+    
+    excluded_keywords = ["аренд", "продаж", "прокат", "рефрижератор", "запчаст", "разбор", "детал"]
+    if any(word in title_lower for word in excluded_keywords):
+        return False
+        
     if not model_name:
         return True
-    title_lower = title.lower()
-    keywords = [word for word in re.split(r"\s+", model_name.lower()) if word]
+    ignore_words = {"два", "две", "три", "четыре", "пять", "шт", "штук", "штуки"}
+    
+    keywords = []
+    for word in re.split(r"\s+", model_name.lower()):
+        if not word:
+            continue
+        if word in ignore_words:
+            continue
+        if word.isdigit() and int(word) < 100:
+            continue
+        keywords.append(word)
+        
     return all(keyword in title_lower for keyword in keywords)
 
 
