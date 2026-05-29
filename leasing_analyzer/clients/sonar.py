@@ -156,7 +156,7 @@ class SonarAnalogFinder:
         # Если base_url не указан, но ключ начинается с sk-, предполагаем прокси artemox
         if not base_url and self.api_key and self.api_key.startswith("sk-"):
             base_url = "https://api.artemox.com/v1"
-            logger.info("[SONAR] Detected proxy API (artemox.com) based on key format")
+            logger.info("[SONAR] Обнаружен прокси API (artemox.com) на основе формата ключа")
         
         if base_url:
             # Прокси через artemox.com или другой сервис
@@ -180,16 +180,16 @@ class SonarAnalogFinder:
             # Начинаем с первой доступной модели
             self.model = self.model_candidates[0] if self.model_candidates else "sonar-reasoning-pro"
             self.current_model_index = 0
-            logger.info(f"[SONAR] Using proxy API: {self.api_url} with model: {self.model}")
-            logger.info(f"[SONAR] Available model fallbacks: {', '.join(self.model_candidates)}")
+            logger.info(f"[SONAR] Используется прокси API: {self.api_url} с моделью: {self.model}")
+            logger.info(f"[SONAR] Доступные резервные модели: {', '.join(self.model_candidates)}")
         else:
             # Прямой Perplexity API
             self.api_url = CONFIG.sonar_api_url
             self.model = CONFIG.sonar_model
-            logger.info(f"[SONAR] Using direct Perplexity API: {self.api_url} with model: {self.model}")
+            logger.info(f"[SONAR] Используется прямой API Perplexity: {self.api_url} с моделью: {self.model}")
 
         logger.info(
-            "[SONAR] Rate limit config: calls=%s per %.1fs, min_delay=%.1fs, retry_after_default=%.1fs",
+            "[SONAR] Настройки лимита запросов: calls=%s за %.1fs, min_delay=%.1fs, retry_after_default=%.1fs",
             CONFIG.sonar_rate_limit_calls,
             CONFIG.sonar_rate_limit_period,
             CONFIG.sonar_min_delay,
@@ -267,13 +267,13 @@ class SonarAnalogFinder:
             try:
                 waited = sonar_rate_limiter.wait_if_needed()
                 if waited >= 1.0:
-                    logger.info(f"[SONAR] Cooldown before request: {waited:.1f}s")
+                    logger.info(f"[SONAR] Ожидание перед запросом: {waited:.1f}s")
                 
                 # Логируем детали запроса для отладки (только для прокси)
                 if "artemox.com" in self.api_url and attempt == 0:
-                    logger.info(f"[SONAR] Sending request to {self.api_url}")
-                    logger.info(f"[SONAR] Model: {self.model}")
-                    logger.debug(f"[SONAR] Payload: {json.dumps(payload, ensure_ascii=False)[:300]}...")
+                    logger.info(f"[SONAR] Отправка запроса к {self.api_url}")
+                    logger.info(f"[SONAR] Модель: {self.model}")
+                    logger.debug(f"[SONAR] Тело запроса: {json.dumps(payload, ensure_ascii=False)[:300]}...")
                 
                 # Используем отдельную сессию для Sonar без автоматических retry
                 response = get_sonar_session().post(
@@ -287,15 +287,15 @@ class SonarAnalogFinder:
                 if response.status_code != 200:
                     try:
                         error_body = response.text[:200]  # Первые 200 символов ошибки
-                        logger.warning(f"[SONAR] Response status {response.status_code}: {error_body}")
+                        logger.warning(f"[SONAR] Статус ответа {response.status_code}: {error_body}")
                     except:
                         pass
                 
                 # Обрабатываем 401 Unauthorized: невалидный или отсутствующий API-ключ
                 if response.status_code == 401:
-                    logger.error("[SONAR] 401 Unauthorized - Invalid or missing PERPLEXITY_API_KEY")
-                    logger.error("[SONAR] Please check your .env file and ensure PERPLEXITY_API_KEY is set correctly")
-                    logger.error("[SONAR] Key should start with 'pplx-' or 'sk-' (without quotes)")
+                    logger.error("[SONAR] 401 Unauthorized - Неверный или отсутствующий PERPLEXITY_API_KEY")
+                    logger.error("[SONAR] Проверьте файл .env и убедитесь, что PERPLEXITY_API_KEY установлен правильно")
+                    logger.error("[SONAR] Ключ должен начинаться с 'pplx-' или 'sk-' (bez kavychek)")
                     return None
                 
                 # Обрабатываем ошибки 500: возможна неподдерживаемая модель
@@ -303,12 +303,12 @@ class SonarAnalogFinder:
                     wait_time = self._parse_retry_after(response) or CONFIG.sonar_retry_after_default
                     if attempt < retries:
                         logger.warning(
-                            f"[SONAR] 429 Too Many Requests, waiting {wait_time:.1f}s "
-                            f"(attempt {attempt + 1}/{retries + 1})..."
+                            f"[SONAR] 429 Too Many Requests, ожидание {wait_time:.1f}s "
+                            f"(попытка {attempt + 1}/{retries + 1})..."
                         )
                         time.sleep(wait_time)
                         continue
-                    logger.error(f"[SONAR] 429 Too Many Requests after {retries + 1} attempts")
+                    logger.error(f"[SONAR] 429 Too Many Requests после {retries + 1} попыток")
                     return None
 
                 if response.status_code == 500:
@@ -322,22 +322,22 @@ class SonarAnalogFinder:
                                 self.current_model_index += 1
                                 self.model = self.model_candidates[self.current_model_index]
                                 payload["model"] = self.model
-                                logger.warning(f"[SONAR] Model not allowed, switching to: {self.model}")
+                                logger.warning(f"[SONAR] Модель не разрешена, переключение на: {self.model}")
                                 continue
                     except:
                         pass
                     
                     if attempt < retries:
                         wait_time = (attempt + 1) * 3  # 3, 6, 9 секунд
-                        logger.warning(f"[SONAR] 500 Internal Server Error from {self.api_url}")
-                        logger.warning(f"[SONAR] This usually means the proxy server is overloaded or having issues")
-                        logger.warning(f"[SONAR] Retrying in {wait_time}s (attempt {attempt + 1}/{retries + 1})...")
+                        logger.warning(f"[SONAR] 500 Internal Server Error от {self.api_url}")
+                        logger.warning(f"[SONAR] Обычно это означает, что прокси-сервер перегружен или испытывает проблемы")
+                        logger.warning(f"[SONAR] Повтор через {wait_time}s (попытка {attempt + 1}/{retries + 1})...")
                         time.sleep(wait_time)
                         continue
                     else:
-                        logger.error(f"[SONAR] 500 error persisted after {retries + 1} attempts")
-                        logger.error(f"[SONAR] Proxy server {self.api_url} may be temporarily unavailable")
-                        logger.error("[SONAR] System will use fallback methods (GigaChat/Google)")
+                        logger.error(f"[SONAR] Ошибка 500 сохраняется после {retries + 1} попыток")
+                        logger.error(f"[SONAR] Прокси-сервер {self.api_url} может быть временно недоступен")
+                        logger.error("[SONAR] Система будет использовать резервные методы (GigaChat/Google)")
                         return None
                 
                 response.raise_for_status()
@@ -347,44 +347,44 @@ class SonarAnalogFinder:
                 
                 # Логируем сырой ответ для отладки (первые 500 символов)
                 if not content:
-                    logger.warning(f"[SONAR] Empty content in API response. Full response keys: {list(data.keys())}")
-                    logger.debug(f"[SONAR] Full response structure: {str(data)[:500]}")
+                    logger.warning(f"[SONAR] Пустой контент в ответе API. Ключи ответа: {list(data.keys())}")
+                    logger.debug(f"[SONAR] Полная структура ответа: {str(data)[:500]}")
                     return None
                 
-                logger.debug(f"[SONAR] Received content length: {len(content)} chars")
-                logger.debug(f"[SONAR] Content preview: {content[:200]}...")
+                logger.debug(f"[SONAR] Длина полученного контента: {len(content)} символов")
+                logger.debug(f"[SONAR] Предпросмотр контента: {content[:200]}...")
                 
                 # Разбираем JSON из ответа
                 parsed = safe_json_loads(content)
                 if not parsed:
-                    logger.warning(f"[SONAR] Failed to parse JSON from content. Content preview: {content[:500]}")
+                    logger.warning(f"[SONAR] Ошибка парсинга JSON из контента. Предпросмотр контента: {content[:500]}")
                     if return_raw_on_parse_failure:
                         return {"_raw_content": content}
                 else:
-                    logger.debug(f"[SONAR] Successfully parsed JSON. Keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'not a dict'}")
+                    logger.debug(f"[SONAR] JSON успешно распарсен. Ключи: {list(parsed.keys()) if isinstance(parsed, dict) else 'not a dict'}")
                 
                 return parsed
                 
             except requests.Timeout as e:
                 if attempt < retries:
                     wait_time = (attempt + 1) * 2
-                    logger.warning(f"[SONAR] Timeout, retrying in {wait_time}s (attempt {attempt + 1}/{retries + 1})...")
+                    logger.warning(f"[SONAR] Таймаут, повтор через {wait_time}s (попытка {attempt + 1}/{retries + 1})...")
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"[SONAR] Timeout after {retries + 1} attempts: {e}")
+                    logger.error(f"[SONAR] Таймаут после {retries + 1} попыток: {e}")
                     return None
             except requests.HTTPError as e:
                 if e.response and e.response.status_code == 401:
-                    logger.error("[SONAR] Authentication failed - check PERPLEXITY_API_KEY in .env file")
+                    logger.error("[SONAR] Ошибка аутентификации - проверьте PERPLEXITY_API_KEY в .env")
                     return None
                 if e.response and e.response.status_code == 429:
                     wait_time = self._parse_retry_after(e.response) or CONFIG.sonar_retry_after_default
                     if attempt < retries:
-                        logger.warning(f"[SONAR] HTTP 429 error, retrying in {wait_time:.1f}s...")
+                        logger.warning(f"[SONAR] Ошибка HTTP 429, повтор через {wait_time:.1f}s...")
                         time.sleep(wait_time)
                         continue
-                    logger.error(f"[SONAR] HTTP 429 persisted after {retries + 1} attempts")
+                    logger.error(f"[SONAR] HTTP 429 сохраняется после {retries + 1} попыток")
                     return None
                 if e.response and e.response.status_code == 500:
                     # Проверяем, не связана ли ошибка с моделью
@@ -396,17 +396,17 @@ class SonarAnalogFinder:
                             self.current_model_index += 1
                             self.model = self.model_candidates[self.current_model_index]
                             payload["model"] = self.model
-                            logger.warning(f"[SONAR] Model error detected, switching to: {self.model}")
+                            logger.warning(f"[SONAR] Обнаружена ошибка модели, переключение на: {self.model}")
                             continue
                     except:
                         pass
                     
                     if attempt < retries:
                         wait_time = (attempt + 1) * 3
-                        logger.warning(f"[SONAR] HTTP 500 error, retrying in {wait_time}s...")
+                        logger.warning(f"[SONAR] Ошибка HTTP 500, повтор через {wait_time}s...")
                         time.sleep(wait_time)
                         continue
-                logger.warning(f"[SONAR] HTTP error: {e}")
+                logger.warning(f"[SONAR] HTTP ошибка: {e}")
                 return None
             except requests.RequestException as e:
                 # Обрабатываем ResponseError от HTTPAdapter (too many 500 errors)
@@ -420,18 +420,18 @@ class SonarAnalogFinder:
                 
                 if attempt < retries and is_retryable:
                     wait_time = (attempt + 1) * 3  # Увеличиваем задержку для 500 ошибок
-                    logger.warning(f"[SONAR] Request error (retryable), retrying in {wait_time}s: {e}")
+                    logger.warning(f"[SONAR] Ошибка запроса (повторяемая), повтор через {wait_time}s: {e}")
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.warning(f"[SONAR] Request error (non-retryable or max retries): {e}")
+                    logger.warning(f"[SONAR] Ошибка запроса (неповторяемая или исчерпаны попытки): {e}")
                     if "too many 500" in error_str:
-                        logger.error("[SONAR] Proxy server is returning too many 500 errors")
-                        logger.error("[SONAR] This may indicate server overload or temporary unavailability")
-                        logger.error("[SONAR] Will use fallback methods (GigaChat/Google)")
+                        logger.error("[SONAR] Прокси-сервер возвращает слишком много ошибок 500")
+                        logger.error("[SONAR] Это может указывать на перегрузку или временную недоступность сервера")
+                        logger.error("[SONAR] Будут использованы резервные методы (GigaChat/Google)")
                     return None
             except Exception as e:
-                logger.warning(f"[SONAR] Parse error: {e}")
+                logger.warning(f"[SONAR] Ошибка парсинга: {e}")
                 return None
         
         return None
@@ -498,11 +498,11 @@ class SonarAnalogFinder:
         Возвращает список из 3 аналогов с описанием.
         """
         if not self.is_available():
-            logger.warning("[SONAR] API not available - PERPLEXITY_API_KEY not set or invalid format")
-            logger.warning("[SONAR] Key should start with 'pplx-' or 'sk-'")
+            logger.warning("[SONAR] API недоступен - PERPLEXITY_API_KEY не установлен или неверный формат")
+            logger.warning("[SONAR] Ключ должен начинаться с 'pplx-' или 'sk-'")
             return []
         
-        logger.info(f"[SONAR] Searching for 3 analogs for: {item_name}")
+        logger.info(f"[SONAR] Поиск 3 аналогов для: {item_name}")
         
         try:
             prompt = self.ANALOG_PROMPT.format(item=item_name)
@@ -510,25 +510,25 @@ class SonarAnalogFinder:
             result = self._call_sonar(prompt, max_tokens=800, retries=3)
             
             if not result:
-                logger.warning("[SONAR] Failed to get analogs from API response - _call_sonar returned None")
-                logger.warning("[SONAR] Possible reasons: timeout, 500 error, invalid API key, or JSON parse error")
+                logger.warning("[SONAR] Не удалось получить аналоги из ответа API - _call_sonar вернул None")
+                logger.warning("[SONAR] Возможные причины: таймаут, ошибка 500, неверный ключ API или ошибка парсинга JSON")
                 logger.warning("[SONAR] Will use fallback methods (GigaChat/Google)")
                 return []
             
             if "analogs" not in result:
-                logger.warning(f"[SONAR] API response doesn't contain 'analogs' key")
-                logger.warning(f"[SONAR] Response keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}")
-                logger.warning(f"[SONAR] Response preview: {str(result)[:500]}")
+                logger.warning(f"[SONAR] Ответ API не содержит ключа 'analogs'")
+                logger.warning(f"[SONAR] Ключи ответа: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}")
+                logger.warning(f"[SONAR] Предпросмотр ответа: {str(result)[:500]}")
                 logger.warning("[SONAR] Will use fallback methods (GigaChat/Google)")
                 return []
         except Exception as e:
-            logger.error(f"[SONAR] Exception during analog search: {e}")
-            logger.info("[SONAR] Falling back to GigaChat/Google methods")
+            logger.error(f"[SONAR] Исключение во время поиска аналогов: {e}")
+            logger.info("[SONAR] Переход на резервные методы GigaChat/Google")
             return []
         
         raw_analogs = result.get("analogs", [])
         if not raw_analogs:
-            logger.warning("[SONAR] No analogs in API response")
+            logger.warning("[SONAR] В ответе API нет аналогов")
             return []
         
         # Обрабатываем результаты
@@ -552,12 +552,12 @@ class SonarAnalogFinder:
         
         # Если получили меньше 3, логируем предупреждение
         if len(analogs) < 3:
-            logger.warning(f"[SONAR] Got only {len(analogs)} analogs instead of 3")
+            logger.warning(f"[SONAR] Получено только {len(analogs)} аналогов вместо 3")
         
         if analogs:
-            logger.info(f"[SONAR] Found {len(analogs)} analogs: {', '.join([a['name'] for a in analogs])}")
+            logger.info(f"[SONAR] Найдено {len(analogs)} аналогов: {', '.join([a['name'] for a in analogs])}")
         else:
-            logger.warning("[SONAR] No valid analogs found")
+            logger.warning("[SONAR] Не найдено валидных аналогов")
         
         return analogs
     
@@ -590,7 +590,7 @@ class SonarAnalogFinder:
         analog_price = analog_offer.get("price")
         analog_url = analog_offer.get("url", "")
         
-        logger.info(f"[SONAR] Comparing offers: {orig_title[:50]}... vs {analog_title[:50]}...")
+        logger.info(f"[SONAR] Сравнение предложений: {orig_title[:50]}... против {analog_title[:50]}...")
         
         orig_price_str = format_price(orig_price) if orig_price else "цена не указана"
         analog_price_str = format_price(analog_price) if analog_price else "цена не указана"
@@ -616,8 +616,8 @@ class SonarAnalogFinder:
 
         if result and "_raw_content" in result:
             logger.warning(
-                f"[SONAR] Comparison response for {original_name} vs {analog_name} was not JSON; "
-                "using structured fallback instead of failing"
+                f"[SONAR] Ответ сравнения для {original_name} и {analog_name} не был в формате JSON; "
+                "используется структурированный резервный вариант"
             )
             result = self._build_fallback_comparison(
                 original_name=original_name,
@@ -628,7 +628,7 @@ class SonarAnalogFinder:
             )
         
         if not result:
-            logger.warning(f"[SONAR] Comparison failed for {original_name} vs {analog_name}")
+            logger.warning(f"[SONAR] Сравнение не удалось для {original_name} и {analog_name}")
             return {
                 "winner": "unknown", 
                 "recommendation": "Сравнение через Sonar не удалось (ошибка API или таймаут)",
@@ -684,24 +684,24 @@ class SonarAnalogFinder:
         
         prompt = self.FIND_BEST_OFFER_PROMPT.format(offers_list=offers_list)
         
-        logger.info(f"[SONAR] Finding best offer from {len(offers)} offers...")
+        logger.info(f"[SONAR] Поиск лучшего предложения из {len(offers)}...")
         result = self._call_sonar(prompt, max_tokens=800, retries=2)
         
         if not result:
-            logger.warning("[SONAR] Failed to find best offer via Sonar")
+            logger.warning("[SONAR] Не удалось найти лучшее предложение через Sonar")
             return None
         
         # Проверяем наличие обязательных полей
         if "best_index" not in result:
-            logger.warning(f"[SONAR] Invalid response format: missing best_index. Keys: {list(result.keys())}")
+            logger.warning(f"[SONAR] Неверный формат ответа: отсутствует best_index. Ключи: {list(result.keys())}")
             return None
         
         best_index = result.get("best_index", 0)
         if not (0 <= best_index < len(offers)):
-            logger.warning(f"[SONAR] Invalid best_index {best_index}, using 0")
+            logger.warning(f"[SONAR] Некорректный best_index {best_index}, используется 0")
             best_index = 0
         
-        logger.info(f"[SONAR] Best offer selected: index {best_index}, score {result.get('best_score', 0):.1f}/10")
+        logger.info(f"[SONAR] Выбрано лучшее предложение: индекс {best_index}, оценка {result.get('best_score', 0):.1f}/10")
         return result
     
     def validate_market_prices(
@@ -739,11 +739,11 @@ class SonarAnalogFinder:
             offers_count=offers_count
         )
         
-        logger.info(f"[SONAR] Validating market prices for {item_name}...")
+        logger.info(f"[SONAR] Валидация рыночных цен для {item_name}...")
         result = self._call_sonar(prompt, max_tokens=500, retries=2)
         
         if not result:
-            logger.warning("[SONAR] Failed to validate market prices via Sonar")
+            logger.warning("[SONAR] Не удалось проверить рыночные цены через Sonar")
             return None
         
         return result
@@ -767,11 +767,11 @@ class SonarAnalogFinder:
             description=desc
         )
         
-        logger.debug(f"[SONAR] Enriching offer data for: {title[:50]}...")
+        logger.debug(f"[SONAR] Обогащение данных объявления для: {title[:50]}...")
         result = self._call_sonar(prompt, max_tokens=400, retries=1)
         
         if not result:
-            logger.debug("[SONAR] Failed to enrich offer data via Sonar")
+            logger.debug("[SONAR] Не удалось обогатить данные объявления через Sonar")
             return None
         
         return result

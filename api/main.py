@@ -34,9 +34,9 @@ memory_service = None
 if CONFIG.memory_enabled:
     memory_repository = MemoryRepository(CONFIG.memory_db_path)
     memory_service = MemoryService(memory_repository)
-    logger.info("Memory service enabled: db=%s", CONFIG.memory_db_path)
+    logger.info("Сервис памяти включен: db=%s", CONFIG.memory_db_path)
 else:
-    logger.info("Memory service disabled by configuration")
+    logger.info("Сервис памяти отключен в конфигурации")
 
 
 app = FastAPI(
@@ -361,7 +361,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
         )
         memory_context = context.to_prompt_block() if context else None
         logger.info(
-            "Memory context prepared for describe: session_id=%s item=%s context_present=%s",
+            "Контекст памяти подготовлен для анализа: session_id=%s item=%s context_present=%s",
             session_id,
             item_str,
             bool(memory_context),
@@ -380,7 +380,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
         if memory_service and session_id:
             cached = memory_service.get_cached_describe_result(session_id, item_str, client_price=client_price)
             if cached:
-                logger.info("Found cached describe result in memory for item: %s", item_str)
+                logger.info("Найден кэшированный результат анализа в памяти для: %s", item_str)
                 analysis = cached
 
         if not analysis:
@@ -414,7 +414,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                     user_input=item_str,
                     result=analysis,
                 )
-                logger.info("Memory saved after describe: session_id=%s item=%s", session_id, item_str)
+                logger.info("Данные сохранены в память после анализа: session_id=%s item=%s", session_id, item_str)
 
         market_report = analysis.get("market_report") or {}
         offers_used = analysis.get("offers_used") or []
@@ -581,7 +581,7 @@ async def analyze_document_endpoint(
             )
             memory_context = context.to_prompt_block() if context else None
             logger.info(
-                "Memory context prepared for document analysis: session_id=%s file=%s context_present=%s",
+                "Контекст памяти подготовлен для анализа документа: session_id=%s file=%s context_present=%s",
                 sessionId,
                 file.filename,
                 bool(memory_context),
@@ -600,7 +600,7 @@ async def analyze_document_endpoint(
                 file_name=file.filename,
                 result=result,
             )
-            logger.info("Memory saved after document analysis: session_id=%s file=%s", sessionId, file.filename)
+            logger.info("Данные сохранены в память после анализа документа: session_id=%s file=%s", sessionId, file.filename)
         return DocumentAnalyzeResponse(**result)
     except ValueError as exc:
         logger.warning("Ошибка анализа документа %s: %s", file.filename, exc)

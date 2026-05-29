@@ -4,6 +4,7 @@ import os
 import shutil
 import time
 import threading
+import queue
 from typing import Optional
 
 from selenium import webdriver
@@ -22,26 +23,14 @@ from leasing_analyzer.core.utils import is_valid_url
 logger = get_logger(__name__)
 
 class SeleniumFetcher:
-    """Загрузчик страниц на базе Selenium с ленивой инициализацией и автовосстановлением."""
+    """Загрузчик страниц на базе Selenium с пулом потокобезопасных драйверов и автовосстановлением."""
     
     def __init__(self):
-        self._local = threading.local()
-        self._drivers = []
+        self._drivers_pool = queue.Queue()
+        self._all_drivers = []
         self._drivers_lock = threading.Lock()
         self._options: Optional[Options] = None
         self._max_restart_attempts = 3
-
-    @property
-    def driver(self) -> Optional[webdriver.Chrome]:
-        return getattr(self._local, "driver", None)
-
-    @driver.setter
-    def driver(self, value: Optional[webdriver.Chrome]):
-        self._local.driver = value
-        if value is not None:
-            with self._drivers_lock:
-                if value not in self._drivers:
-                    self._drivers.append(value)
 
     @staticmethod
     def _resolve_binary(env_name: str, candidates: list[str]) -> Optional[str]:
@@ -49,7 +38,7 @@ class SeleniumFetcher:
         if configured_path:
             if os.path.exists(configured_path):
                 return configured_path
-            logger.warning("%s is set but does not exist: %s", env_name, configured_path)
+            logger.warning("%s задан, но не существует: %s", env_name, configured_path)
 
         for candidate in candidates:
             resolved_path = shutil.which(candidate)
@@ -78,85 +67,91 @@ class SeleniumFetcher:
             )
             if chrome_bin:
                 self._options.binary_location = chrome_bin
-                logger.info("chromium binary resolved: %s", chrome_bin)
+                logger.info("Путь к chromium определен: %s", chrome_bin)
             self._options.add_argument(
                 "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
             )
         return self._options
 
-    def _is_driver_alive(self) -> bool:
+    def _is_driver_alive(self, driver: webdriver.Chrome) -> bool:
         """Проверяет, отвечает ли драйвер."""
-        if not self.driver:
+        if not driver:
             return False
         try:
-            service = getattr(self.driver, "service", None)
+            service = getattr(driver, "service", None)
             process = getattr(service, "process", None)
             if process is not None and process.poll() is not None:
                 return False
-            return bool(getattr(self.driver, "session_id", None))
+            return bool(getattr(driver, "session_id", None))
         except Exception:
             return False
-    
-    def _restart_driver(self):
-        """Перезапускает драйвер после ошибки соединения."""
-        logger.warning("Restarting Chrome driver due to connection issues...")
-        if self.driver:
-            self._close_single_driver(self.driver)
-            with self._drivers_lock:
-                if self.driver in self._drivers:
-                    self._drivers.remove(self.driver)
-        time.sleep(2)  # Даем ChromeDriver полностью завершиться
-        self.driver = None  # Принудительно создадим новый экземпляр
-    
-    def _get_driver(self) -> webdriver.Chrome:
-        """Возвращает существующий ChromeDriver или создает новый с авто-загрузкой."""
-        if self.driver and self._is_driver_alive():
-            return self.driver
-        
-        # Драйвер умер или отсутствует, создаем новый
-        if self.driver:
-            logger.warning("Driver is not responsive, recreating...")
-            self._close_single_driver(self.driver)
-            with self._drivers_lock:
-                if self.driver in self._drivers:
-                    self._drivers.remove(self.driver)
-            self.driver = None
-        
+            
+    def _create_driver(self) -> webdriver.Chrome:
+        """Создает новый ChromeDriver с авто-загрузкой."""
         try:
-            # Сначала проверяем, задан ли CHROMEDRIVER_PATH вручную в окружении
             driver_bin = self._resolve_binary("CHROMEDRIVER_PATH", ["chromedriver"])
             
             if driver_bin:
-                logger.info("Using manually resolved chromedriver: %s", driver_bin)
+                logger.info("Используется chromedriver по ручному пути: %s", driver_bin)
                 service_obj = Service(driver_bin)
             else:
-                # Если в системе пути нет, webdriver-manager скачает нужный драйвер сам в фоне
-                logger.info("Chromedriver not found locally. Resolving via webdriver-manager...")
+                logger.info("Chromedriver не найден локально. Загружаем через webdriver-manager...")
                 service_obj = ChromeService(ChromeDriverManager().install())
             
-            self.driver = webdriver.Chrome(service=service_obj, options=self._get_options())
+            driver = webdriver.Chrome(service=service_obj, options=self._get_options())
             
-            # Настраиваем таймауты
-            self.driver.set_page_load_timeout(CONFIG.page_load_timeout)
-            self.driver.implicitly_wait(CONFIG.implicit_wait)
-            self.driver.set_script_timeout(CONFIG.script_timeout)
-            logger.info("chromium loaded")
-            logger.info("chromedriver ready")
-            return self.driver
+            driver.set_page_load_timeout(CONFIG.page_load_timeout)
+            driver.implicitly_wait(CONFIG.implicit_wait)
+            driver.set_script_timeout(CONFIG.script_timeout)
+            logger.info("Chromium загружен")
+            logger.info("Chromedriver готов к работе")
+            
+            with self._drivers_lock:
+                self._all_drivers.append(driver)
+            return driver
         except Exception as e:
-            logger.error(f"Failed to create Chrome driver: {e}")
-            self.driver = None
+            logger.error(f"Не удалось создать Chrome драйвер: {e}")
             raise
+
+    def _acquire_driver(self) -> webdriver.Chrome:
+        """Берет драйвер из пула или создает новый."""
+        try:
+            while True:
+                driver = self._drivers_pool.get_nowait()
+                if self._is_driver_alive(driver):
+                    return driver
+                else:
+                    self._discard_driver(driver)
+        except queue.Empty:
+            return self._create_driver()
+
+    def _release_driver(self, driver: webdriver.Chrome):
+        """Возвращает драйвер в пул."""
+        if driver and self._is_driver_alive(driver):
+            self._drivers_pool.put(driver)
+        else:
+            self._discard_driver(driver)
+
+    def _discard_driver(self, driver: webdriver.Chrome):
+        """Уничтожает сломанный драйвер."""
+        if driver:
+            self._close_single_driver(driver)
+            with self._drivers_lock:
+                if driver in self._all_drivers:
+                    self._all_drivers.remove(driver)
 
     def close(self):
         """Закрывает все драйверы и освобождает ресурсы."""
         with self._drivers_lock:
-            for d in self._drivers:
+            for d in self._all_drivers:
                 self._close_single_driver(d)
-            self._drivers.clear()
-        # Reset local driver as well to be safe
-        self.driver = None
+            self._all_drivers.clear()
+        while not self._drivers_pool.empty():
+            try:
+                self._drivers_pool.get_nowait()
+            except queue.Empty:
+                break
 
     def _close_single_driver(self, driver: webdriver.Chrome):
         if not driver:
@@ -170,7 +165,7 @@ class SeleniumFetcher:
             elif service and hasattr(service, "stop"):
                 service.stop()
         except Exception as e:
-            logger.debug(f"Error closing driver: {e}")
+            logger.debug(f"Ошибка при закрытии драйвера: {e}")
 
     def capture_screenshot(
         self,
@@ -183,12 +178,13 @@ class SeleniumFetcher:
     ) -> Optional[bytes]:
         """Снимает скриншот страницы через Selenium и возвращает PNG-байты."""
         if not is_valid_url(url):
-            logger.warning(f"Invalid URL for screenshot: {url}")
+            logger.warning(f"Некорректный URL для скриншота: {url}")
             return None
 
         for attempt in range(self._max_restart_attempts):
+            driver = None
             try:
-                driver = self._get_driver()
+                driver = self._acquire_driver()
                 driver.set_page_load_timeout(CONFIG.page_load_timeout)
                 driver.get(url)
                 time.sleep(wait)
@@ -198,7 +194,7 @@ class SeleniumFetcher:
                         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                         time.sleep(wait)
                     except Exception as scroll_err:
-                        logger.debug(f"Screenshot scroll failed for {url}: {scroll_err}")
+                        logger.debug(f"Ошибка скроллинга при скриншоте {url}: {scroll_err}")
                         break
 
                 full_height = driver.execute_script(
@@ -211,37 +207,37 @@ class SeleniumFetcher:
                 time.sleep(0.25)
                 driver.execute_script("window.scrollTo(0, 0);")
                 time.sleep(0.25)
-                return driver.get_screenshot_as_png()
+                
+                png = driver.get_screenshot_as_png()
+                self._release_driver(driver)
+                return png
 
             except TimeoutException as e:
-                # СПАСАТЕЛЬНАЯ ОПЕРАЦИЯ: Сайт завис, но мы пробуем сфоткать то, что успело отрендериться
-                logger.warning(f"Timeout while capturing screenshot for {url} (Attempt {attempt + 1}), trying to force capture fallback...")
+                logger.warning(f"Таймаут при создании скриншота для {url} (Попытка {attempt + 1}), пробуем сделать резервный снимок...")
                 try:
                     if driver:
-                        # Пытаемся забрать скриншот текущего состояния страницы прямо сейчас
                         fallback_png = driver.get_screenshot_as_png()
-                        logger.info(f"Successfully recovered partial screenshot for {url} despite timeout.")
+                        logger.info(f"Успешно получен частичный скриншот для {url} несмотря на таймаут.")
+                        self._release_driver(driver)
                         return fallback_png
                 except Exception as fallback_err:
-                    logger.error(f"Failed to grab partial screenshot on timeout: {fallback_err}")
+                    logger.error(f"Не удалось получить частичный скриншот при таймауте: {fallback_err}")
 
-                # Если даже частичный скриншот сделать не вышло, перезапускаем драйвер по твоей логике
+                self._discard_driver(driver)
                 if attempt < self._max_restart_attempts - 1:
-                    self._restart_driver()
                     time.sleep(1)
                     continue
                 return None
                 
             except Exception as e:
-                logger.error(f"Failed to capture screenshot for {url}: {e}")
-                if not self._is_driver_alive():
-                    logger.warning("Driver died during screenshot capture, restarting...")
-                    self._restart_driver()
-                    if attempt < self._max_restart_attempts - 1:
-                        continue
+                logger.error(f"Не удалось сделать скриншот для {url}: {e}")
+                self._discard_driver(driver)
+                if attempt < self._max_restart_attempts - 1:
+                    time.sleep(1)
+                    continue
                 return None
 
-        logger.error(f"Failed to capture screenshot for {url} after {self._max_restart_attempts} attempts")
+        logger.error(f"Не удалось сделать скриншот для {url} после {self._max_restart_attempts} попыток")
         return None
 
     def fetch_page(
@@ -252,32 +248,32 @@ class SeleniumFetcher:
     ) -> Optional[str]:
         """Загружает страницу со скроллом для динамического контента и автовосстановлением."""
         if not is_valid_url(url):
-            logger.warning(f"Invalid URL: {url}")
+            logger.warning(f"Некорректный URL: {url}")
             return None
         
         for attempt in range(self._max_restart_attempts):
+            driver = None
             try:
-                driver = self._get_driver()
+                driver = self._acquire_driver()
                 
                 # Пытаемся загрузить страницу с таймаутом
                 try:
                     driver.set_page_load_timeout(CONFIG.page_load_timeout)
                     driver.get(url)
                 except TimeoutException:
-                    # Если загрузка превышает таймаут, пытаемся получить часть контента
-                    logger.warning(f"Page load timeout for {url}, trying to get partial content...")
+                    logger.warning(f"Таймаут загрузки страницы {url}, пробуем получить частичный контент...")
                     try:
-                        # Пытаемся все равно получить контент
-                        return driver.page_source
+                        html = driver.page_source
+                        self._release_driver(driver)
+                        return html
                     except Exception as e:
-                        logger.debug(f"Could not get partial content: {e}")
-                         # Проверяем, жив ли драйвер
-                        if not self._is_driver_alive():
-                            logger.warning("Driver died after timeout, restarting...")
-                            self._restart_driver()
-                            if attempt < self._max_restart_attempts - 1:
-                                continue
+                        logger.debug(f"Не удалось получить частичный контент: {e}")
+                        self._discard_driver(driver)
+                        if attempt < self._max_restart_attempts - 1:
+                            time.sleep(1)
+                            continue
                         return None
+                        
                 # Скроллим страницу с защитой от зависания
                 try:
                     last_height = driver.execute_script("return document.body.scrollHeight")
@@ -291,66 +287,49 @@ class SeleniumFetcher:
                                 break
                             last_height = new_height
                         except Exception as scroll_err:
-                            logger.debug(f"Scroll error for {url}: {scroll_err}")
-                            # Проверяем, жив ли драйвер
-                            if not self._is_driver_alive():
-                                logger.warning("Driver died during scroll, restarting...")
-                                self._restart_driver()
-                                if attempt < self._max_restart_attempts - 1:
-                                    break # Прерываем цикл скролла и повторяем загрузку
-                            else:
-                                break # Просто выходим из скролла
+                            logger.debug(f"Ошибка скроллинга для {url}: {scroll_err}")
+                            break
                 except Exception as scroll_err:
-                    logger.debug(f"Scroll failed for {url}: {scroll_err}")
-                    # Проверяем, жив ли драйвер
-                    if not self._is_driver_alive():
-                        logger.warning("Driver died during scroll, restarting...")
-                        self._restart_driver()
-                        if attempt < self._max_restart_attempts - 1:
-                            continue
-                    # Все равно продолжаем: часть контента уже могла загрузиться
+                    logger.debug(f"Скроллинг завершился неудачей для {url}: {scroll_err}")
                 
                 # html успешно загружен
                 try:
-                    return driver.page_source
+                    html = driver.page_source
+                    self._release_driver(driver)
+                    return html
                 except Exception as e:
-                    logger.debug(f"Could not get page source: {e}")
-                    if not self._is_driver_alive():
-                        logger.warning("Driver died when getting page source, restarting...")
-                        self._restart_driver()
-                        if attempt < self._max_restart_attempts - 1:
-                            continue
+                    logger.debug(f"Не удалось получить исходный код страницы: {e}")
+                    self._discard_driver(driver)
+                    if attempt < self._max_restart_attempts - 1:
+                        time.sleep(1)
+                        continue
                     return None
                     
             except TimeoutException as e:
-                logger.warning(f"Timeout loading {url}: {e}")
+                logger.warning(f"Таймаут при загрузке {url}: {e}")
+                self._discard_driver(driver)
                 if attempt < self._max_restart_attempts - 1:
-                    self._restart_driver()
                     time.sleep(1)
                     continue
                 return None
             except Exception as e:
                 error_str = str(e).lower()
-                # Проверка ошибок соединения
+                self._discard_driver(driver)
                 if any(keyword in error_str for keyword in [
                     "connection", "winerror 10061", "refused", 
                     "newconnectionerror", "max retries exceeded"
                 ]):
-                    logger.warning(f"Connection error loading {url}: {e}")
+                    logger.warning(f"Ошибка соединения при загрузке {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
-                        self._restart_driver()
                         time.sleep(2)
                         continue
-                    return None
                 else:
-                    logger.error(f"Failed to load {url}: {e}")
+                    logger.error(f"Не удалось загрузить {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
-                        # 1 перезапуск для прочих ошибок
-                        self._restart_driver()
                         time.sleep(1)
                         continue
-                    return None
+                return None
         
         # Попытки исчерпаны
-        logger.error(f"Failed to load {url} after {self._max_restart_attempts} attempts")
+        logger.error(f"Не удалось загрузить {url} после {self._max_restart_attempts} попыток")
         return None

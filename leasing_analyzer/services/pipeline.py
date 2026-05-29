@@ -26,7 +26,7 @@ def extract_model_from_query(query: str) -> str:
 
 def get_user_input() -> UserInput:
     print("=" * 70)
-    print("Leasing Asset Market Analyzer")
+    print("Анализатор рынка лизинговых активов")
     print("=" * 70)
 
     item = input("\nEnter leasing item (e.g., BMW M5 2024): ").strip()
