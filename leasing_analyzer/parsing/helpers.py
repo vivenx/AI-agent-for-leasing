@@ -18,6 +18,55 @@ from leasing_analyzer.core.utils import (
 
 logger = get_logger(__name__)
 
+def is_relevant_offer_text(text: str, model_name: str) -> bool:
+    """Checks whether the text contains all target model keywords (with transliteration)."""
+    text_lower = text.lower()
+    
+    excluded_keywords = ["запчаст", "разбор", "детал", "по запчастям", "разборка"]
+    if any(word in text_lower for word in excluded_keywords):
+        return False
+        
+    if not model_name:
+        return True
+    ignore_words = {"два", "две", "три", "четыре", "пять", "шт", "штук", "штуки"}
+    
+    keywords = []
+    for word in re.split(r"\s+", model_name.lower()):
+        if not word:
+            continue
+        if word in ignore_words:
+            continue
+        if word.isdigit() and int(word) < 100:
+            continue
+        keywords.append(word)
+
+    mapping = {
+        "man": ["man", "ман"],
+        "tgs": ["tgs", "тгс"],
+        "tgx": ["tgx", "тгх"],
+        "daf": ["daf", "даф"],
+        "volvo": ["volvo", "вольво"],
+        "scania": ["scania", "скания"],
+        "mercedes": ["mercedes", "мерседес"],
+        "benz": ["benz", "бенц"],
+        "kamaz": ["kamaz", "камаз"],
+        "maz": ["maz", "маз"],
+        "gaz": ["gaz", "газ"],
+        "ural": ["ural", "урал"],
+        "sitrak": ["sitrak", "ситрак"],
+        "shacman": ["shacman", "шакман", "шахман"],
+        "faw": ["faw", "фав"],
+        "howo": ["howo", "хово"],
+        "dongfeng": ["dongfeng", "донгфенг", "донфенг"],
+    }
+
+    for kw in keywords:
+        variants = mapping.get(kw, [kw])
+        if not any(variant in text_lower for variant in variants):
+            return False
+
+    return True
+
 GENERIC_SELLER_NAMES = {
     "company",
     "contact",
