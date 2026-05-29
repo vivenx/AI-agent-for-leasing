@@ -114,31 +114,16 @@ class SeleniumFetcher:
             raise
 
     def _acquire_driver(self) -> webdriver.Chrome:
-        """Берет драйвер из пула или создает новый."""
-        try:
-            while True:
-                driver = self._drivers_pool.get_nowait()
-                if self._is_driver_alive(driver):
-                    return driver
-                else:
-                    self._discard_driver(driver)
-        except queue.Empty:
-            return self._create_driver()
+        """Берет драйвер или создает новый."""
+        return self._get_driver()
 
     def _release_driver(self, driver: webdriver.Chrome):
-        """Возвращает драйвер в пул."""
-        if driver and self._is_driver_alive(driver):
-            self._drivers_pool.put(driver)
-        else:
-            self._discard_driver(driver)
+        """Возвращает драйвер (в single-driver режиме ничего не делает)."""
+        pass
 
     def _discard_driver(self, driver: webdriver.Chrome):
         """Уничтожает сломанный драйвер."""
-        if driver:
-            self._close_single_driver(driver)
-            with self._drivers_lock:
-                if driver in self._all_drivers:
-                    self._all_drivers.remove(driver)
+        self.close()
 
     def close(self):
         """Закрывает драйвер и освобождает ресурсы."""
