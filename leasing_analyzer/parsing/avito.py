@@ -130,13 +130,13 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         if not title_tag:
             continue
 
-        title = normalize_whitespace(title_tag.get_text(" ", strip=True))
-        subtitle = card.get_text(" ", strip=True)
-        if not is_relevant_offer_text(f"{title} {subtitle}", model_name):
-            continue
-
         href = title_tag.get("href") or ""
         url = normalize_url(href)
+
+        title = normalize_whitespace(title_tag.get_text(" ", strip=True))
+        subtitle = card.get_text(" ", strip=True)
+        if not is_relevant_offer_text(f"{title} {subtitle}", model_name, url=url):
+            continue
 
         price_tag = card.select_one('[data-marker="item-price"]') or card.select_one("meta[itemprop='price']")
         price_val = None
@@ -179,7 +179,7 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         price_val = digits_to_int(str(item.get("price", "")))
         if not name and not href:
             continue
-        if not is_relevant_offer_text(f"{name} {description}", model_name):
+        if not is_relevant_offer_text(f"{name} {description}", model_name, url=href):
             continue
 
         merged_data = {

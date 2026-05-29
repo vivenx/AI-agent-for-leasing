@@ -55,7 +55,7 @@ class GenericParserStrategy(ParserStrategy):
         domain = urlparse(url).netloc.replace("www.", "")
         visible_text = extract_visible_text(html)[:5000] if html else ""
         
-        if not is_relevant_offer_text(f"{title} {visible_text}", model_name):
+        if not is_relevant_offer_text(f"{title} {visible_text}", model_name, url=url):
             return []
 
         offer = create_offer_from_merged(
