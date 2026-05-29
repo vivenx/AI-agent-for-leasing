@@ -376,37 +376,45 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
     )
 
     try:
-        try:
-            analysis = run_analysis(
-                item=item_str,
-                client_price=client_price,
-                use_ai=use_ai,
-                num_results=num_results,
-                memory_context=memory_context,
-            )
-        except OverflowError as exc:
-            logger.warning("Overflow в run_analysis: %s", exc)
-            analysis = {
-                "item": item_str,
-                "offers_used": [],
-                "market_report": {
-                    "item": item_str,
-                    "market_range": None,
-                    "median_price": None,
-                    "mean_price": None,
-                    "client_price": client_price,
-                    "client_price_ok": None,
-                    "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
-                },
-            }
-
+        analysis = None
         if memory_service and session_id:
-            memory_service.save_describe_interaction(
-                session_id=session_id,
-                user_input=item_str,
-                result=analysis,
-            )
-            logger.info("Memory saved after describe: session_id=%s item=%s", session_id, item_str)
+            cached = memory_service.get_cached_describe_result(session_id, item_str, client_price=client_price)
+            if cached:
+                logger.info("Found cached describe result in memory for item: %s", item_str)
+                analysis = cached
+
+        if not analysis:
+            try:
+                analysis = run_analysis(
+                    item=item_str,
+                    client_price=client_price,
+                    use_ai=use_ai,
+                    num_results=num_results,
+                    memory_context=memory_context,
+                )
+            except OverflowError as exc:
+                logger.warning("Overflow в run_analysis: %s", exc)
+                analysis = {
+                    "item": item_str,
+                    "offers_used": [],
+                    "market_report": {
+                        "item": item_str,
+                        "market_range": None,
+                        "median_price": None,
+                        "mean_price": None,
+                        "client_price": client_price,
+                        "client_price_ok": None,
+                        "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
+                    },
+                }
+
+            if memory_service and session_id:
+                memory_service.save_describe_interaction(
+                    session_id=session_id,
+                    user_input=item_str,
+                    result=analysis,
+                )
+                logger.info("Memory saved after describe: session_id=%s item=%s", session_id, item_str)
 
         market_report = analysis.get("market_report") or {}
         offers_used = analysis.get("offers_used") or []
