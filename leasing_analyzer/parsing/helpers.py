@@ -18,14 +18,24 @@ from leasing_analyzer.core.utils import (
 
 logger = get_logger(__name__)
 
-def is_relevant_offer_text(text: str, model_name: str) -> bool:
-    """Checks whether the text contains all target model keywords (with transliteration)."""
+def is_relevant_offer_text(text: str, model_name: str, url: str = "") -> bool:
+    """Checks whether the text contains all target model keywords (with transliteration) and leasing context if needed."""
     text_lower = text.lower()
     
     excluded_keywords = ["запчаст", "разбор", "детал", "по запчастям", "разборка"]
     if any(word in text_lower for word in excluded_keywords):
         return False
-        
+
+    domain = urlparse(url).netloc.lower().replace("www.", "") if url else ""
+    marketplaces = {"avito.ru", "auto.ru", "drom.ru", "spec.drom.ru", "exkavator.ru", "av.by"}
+    
+    # If it's a general marketplace or unknown source, require leasing context
+    is_marketplace = not domain or any(mp in domain for mp in marketplaces)
+    if is_marketplace:
+        leasing_keywords = ["лизинг", "leasing", "выкуп", "рассрочк"]
+        if not any(lk in text_lower for lk in leasing_keywords):
+            return False
+            
     if not model_name:
         return True
     ignore_words = {"два", "две", "три", "четыре", "пять", "шт", "штук", "штуки"}
