@@ -26,15 +26,10 @@ def is_relevant_offer_text(text: str, model_name: str, url: str = "") -> bool:
     if any(word in text_lower for word in excluded_keywords):
         return False
 
-    domain = urlparse(url).netloc.lower().replace("www.", "") if url else ""
-    marketplaces = {"avito.ru", "auto.ru", "drom.ru", "spec.drom.ru", "exkavator.ru", "av.by"}
-    
-    # If it's a general marketplace or unknown source, require leasing context
-    is_marketplace = not domain or any(mp in domain for mp in marketplaces)
-    if is_marketplace:
-        leasing_keywords = ["лизинг", "leasing", "выкуп", "рассрочк"]
-        if not any(lk in text_lower for lk in leasing_keywords):
-            return False
+    # Require leasing context ALWAYS, and restrict only to true leasing keywords
+    leasing_keywords = ["лизинг", "leasing"]
+    if not any(lk in text_lower for lk in leasing_keywords):
+        return False
             
     if not model_name:
         return True
@@ -72,7 +67,14 @@ def is_relevant_offer_text(text: str, model_name: str, url: str = "") -> bool:
 
     for kw in keywords:
         variants = mapping.get(kw, [kw])
-        if not any(variant in text_lower for variant in variants):
+        # Use regex with word boundaries to avoid matching substrings like "маз" inside "камаз"
+        # or "man" inside "manipulator"
+        found = False
+        for variant in variants:
+            if re.search(rf'\b{re.escape(variant)}\b', text_lower):
+                found = True
+                break
+        if not found:
             return False
 
     return True
