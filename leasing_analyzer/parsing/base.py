@@ -8,7 +8,7 @@ from leasing_analyzer.clients.ai_analyzer import AIAnalyzer
 from leasing_analyzer.core.models import LeasingOffer
 from leasing_analyzer.parsing.avito import parse_avito_list_page
 from leasing_analyzer.parsing.basic import extract_visible_text, parse_page_basic
-from leasing_analyzer.parsing.helpers import create_offer_from_merged, is_relevant_offer_text
+from leasing_analyzer.parsing.helpers import create_offer_from_merged
 
 
 class ParserStrategy(ABC):
@@ -54,10 +54,6 @@ class GenericParserStrategy(ParserStrategy):
 
         domain = urlparse(url).netloc.replace("www.", "")
         visible_text = extract_visible_text(html)[:5000] if html else ""
-        
-        if not is_relevant_offer_text(f"{title} {visible_text}", model_name, url=url):
-            return []
-
         offer = create_offer_from_merged(
             title=title or "Offer",
             url=url,

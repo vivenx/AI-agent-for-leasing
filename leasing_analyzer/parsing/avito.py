@@ -14,10 +14,16 @@ from leasing_analyzer.core.utils import (
     normalize_whitespace,
     safe_json_loads,
 )
-from leasing_analyzer.parsing.helpers import create_offer_from_merged, is_relevant_offer_text
+from leasing_analyzer.parsing.helpers import create_offer_from_merged
 
 
-
+def is_relevant_avito_title(title: str, model_name: str) -> bool:
+    """Checks whether the title contains all target model keywords."""
+    if not model_name:
+        return True
+    title_lower = title.lower()
+    keywords = [word for word in re.split(r"\s+", model_name.lower()) if word]
+    return all(keyword in title_lower for keyword in keywords)
 
 
 def extract_offers_from_ld_json(html: str) -> list[dict]:
@@ -130,13 +136,12 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         if not title_tag:
             continue
 
+        title = normalize_whitespace(title_tag.get_text(" ", strip=True))
+        if not is_relevant_avito_title(title, model_name):
+            continue
+
         href = title_tag.get("href") or ""
         url = normalize_url(href)
-
-        title = normalize_whitespace(title_tag.get_text(" ", strip=True))
-        subtitle = card.get_text(" ", strip=True)
-        if not is_relevant_offer_text(f"{title} {subtitle}", model_name, url=url):
-            continue
 
         price_tag = card.select_one('[data-marker="item-price"]') or card.select_one("meta[itemprop='price']")
         price_val = None
@@ -147,6 +152,7 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         location_tag = card.select_one('[data-marker="item-location"]')
         location = normalize_whitespace(location_tag.get_text(" ", strip=True)) if location_tag else None
 
+        subtitle = card.get_text(" ", strip=True)
         year = _extract_year_from_text(subtitle)
         power = _extract_power(subtitle)
         mileage = _extract_mileage(subtitle)
@@ -174,12 +180,11 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
 
     for item in extract_offers_from_ld_json(html):
         name = normalize_whitespace(item.get("name", "") or item.get("title", ""))
-        description = normalize_whitespace(item.get("description", ""))
         href = item.get("url") or item.get("mainEntityOfPage") or ""
         price_val = digits_to_int(str(item.get("price", "")))
         if not name and not href:
             continue
-        if not is_relevant_offer_text(f"{name} {description}", model_name, url=href):
+        if not is_relevant_avito_title(name, model_name):
             continue
 
         merged_data = {
