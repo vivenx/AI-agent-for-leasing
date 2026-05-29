@@ -69,7 +69,11 @@ class SeleniumFetcher:
             self._options.add_argument("--log-level=3")
             self._options.add_argument("--disable-logging")
             self._options.add_argument("--disable-dev-shm-usage")
-            self._options.add_experimental_option("excludeSwitches", ["enable-logging"])
+            self._options.add_argument("--disable-software-rasterizer")
+            self._options.add_argument("--disable-extensions")
+            self._options.add_argument("--disable-blink-features=AutomationControlled")
+            self._options.add_experimental_option("excludeSwitches", ["enable-logging", "enable-automation"])
+            self._options.add_experimental_option("useAutomationExtension", False)
             self._options.page_load_strategy = "eager"
             
             chrome_bin = self._resolve_binary(
@@ -334,7 +338,8 @@ class SeleniumFetcher:
                 # Проверка ошибок соединения
                 if any(keyword in error_str for keyword in [
                     "connection", "winerror 10061", "refused", 
-                    "newconnectionerror", "max retries exceeded"
+                    "newconnectionerror", "max retries exceeded",
+                    "tab crashed", "session deleted"
                 ]):
                     logger.warning(f"Connection error loading {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
