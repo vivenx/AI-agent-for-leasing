@@ -132,6 +132,7 @@ class MemoryService:
             metadata = {
                 "market_report": market,
                 "analogs": analogs[:5],
+                "full_result": result,
             }
 
             self.repository.add_interaction(
@@ -155,6 +156,19 @@ class MemoryService:
             self._refresh_session_summary(session_id)
         except Exception:
             logger.exception("Memory error while saving describe interaction: session_id=%s", session_id)
+
+    def get_cached_describe_result(self, session_id: str, user_input: str, client_price: Optional[int] = None) -> Optional[dict]:
+        try:
+            interaction = self.repository.find_exact_interaction(session_id, kind="describe", user_input=user_input, price=client_price)
+            if not interaction:
+                return None
+            
+            metadata_str = interaction.get("metadata_json") or "{}"
+            metadata = json.loads(metadata_str)
+            return metadata.get("full_result")
+        except Exception:
+            logger.exception("Memory error while retrieving cached describe result: session_id=%s", session_id)
+            return None
 
     def save_document_interaction(
         self,
