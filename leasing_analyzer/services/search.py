@@ -290,8 +290,13 @@ def filter_available_results(results: list[dict]) -> list[dict]:
 
 def extract_model_from_query(query: str) -> str:
     """Извлекает название модели из произвольного поискового запроса."""
-    parts = (query or "").split()
-    return " ".join(parts[:2]) if parts else ""
+    if not query:
+        return ""
+    # Remove common quantities or useless words if needed, but for now just return the whole cleaned query.
+    # The clean_search_query function already handles noise removal.
+    parts = query.split()
+    # Keep up to 6 words to avoid overly long model names, but don't limit to 2!
+    return " ".join(parts[:6])
 
 
 def filter_offers_by_requested_year(
@@ -636,7 +641,6 @@ def search_and_analyze(
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
-    offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
     logger.info(f"Total offers after processing: {len(offers)}")

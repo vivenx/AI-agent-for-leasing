@@ -363,7 +363,12 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
     if not model_name:
         return True
     title_lower = title.lower()
-    keywords = [w for w in re.split(r"\s+", model_name.lower()) if w]
+    ignore_words = {"два", "две", "три", "четыре", "пять", "шт", "штук", "штуки"}
+    keywords = []
+    for word in re.split(r"\s+", model_name.lower()):
+        if not word or word in ignore_words or (word.isdigit() and int(word) < 100):
+            continue
+        keywords.append(word)
     return all(keyword in title_lower for keyword in keywords)
 
 

@@ -132,6 +132,7 @@ class MemoryService:
             metadata = {
                 "market_report": market,
                 "analogs": analogs[:5],
+                "result_cache": result,
             }
 
             self.repository.add_interaction(

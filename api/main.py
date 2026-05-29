@@ -245,6 +245,118 @@ def select_primary_offer(offers: list[dict], best_offer: Optional[dict]) -> dict
     return max(candidates, key=score)
 
 
+def build_describe_response(analysis: dict) -> DescribeResponse:
+    market_report = analysis.get("market_report") or {}
+    offers_used = analysis.get("offers_used") or []
+    analogs_details_raw = analysis.get("analogs_details") or market_report.get("analogs_details") or []
+
+    sources_for_response: list[dict] = []
+    for offer in offers_used:
+        sources_for_response.append(
+            {
+                "title": offer.get("title"),
+                "source": offer.get("source"),
+                "url": offer.get("url"),
+                "price_str": offer.get("price_str"),
+                "price": offer.get("price"),
+                "monthly_payment_str": offer.get("monthly_payment_str"),
+                "model": offer.get("model"),
+                "year": offer.get("year"),
+                "condition": offer.get("condition"),
+                "location": offer.get("location"),
+            }
+        )
+
+    primary_offer = select_primary_offer(offers_used, market_report.get("best_original_offer"))
+
+    analogs_for_response = [
+        AnalogDetail(
+            name=analog.get("name", "Аналог"),
+            avg_price_guess=analog.get("avg_price_guess"),
+            note=analog.get("note"),
+            pros=analog.get("pros", []),
+            cons=analog.get("cons", []),
+        )
+        for analog in analogs_details_raw
+    ]
+
+    best_original_offer = market_report.get("best_original_offer")
+    best_original_analysis_raw = market_report.get("best_original_analysis", {})
+    best_offers_comparison_raw = market_report.get("best_offers_comparison", {})
+
+    best_original_analysis = None
+    if best_original_analysis_raw:
+        best_original_analysis = BestOfferAnalysis(
+            best_index=best_original_analysis_raw.get("best_index"),
+            best_score=best_original_analysis_raw.get("best_score"),
+            reason=best_original_analysis_raw.get("reason"),
+            ranking=best_original_analysis_raw.get("ranking", []),
+        )
+
+    best_offers_comparison = {
+        analog_name: BestOffersComparison(
+            winner=comp_data.get("winner"),
+            original_score=comp_data.get("original_score"),
+            analog_score=comp_data.get("analog_score"),
+            price_comparison=comp_data.get("price_comparison"),
+            pros_original=comp_data.get("pros_original", []),
+            cons_original=comp_data.get("cons_original", []),
+            pros_analog=comp_data.get("pros_analog", []),
+            cons_analog=comp_data.get("cons_analog", []),
+            recommendation=comp_data.get("recommendation"),
+            use_cases_original=comp_data.get("use_cases_original", []),
+            use_cases_analog=comp_data.get("use_cases_analog", []),
+            original_url=comp_data.get("original_url"),
+            analog_url=comp_data.get("analog_url"),
+            original_title=comp_data.get("original_title"),
+            analog_title=comp_data.get("analog_title"),
+            original_price_formatted=comp_data.get("original_price_formatted"),
+            analog_price_formatted=comp_data.get("analog_price_formatted"),
+            comparison_details=comp_data.get("comparison_details"),
+            key_differences=comp_data.get("key_differences", []),
+            sonar_comparison=comp_data.get("sonar_comparison", False),
+        )
+        for analog_name, comp_data in best_offers_comparison_raw.items()
+    }
+
+    return DescribeResponse(
+        category=primary_offer.get("category"),
+        vendor=primary_offer.get("vendor"),
+        model=primary_offer.get("model"),
+        price=market_report.get("median_price"),
+        currency=primary_offer.get("currency", "RUB"),
+        monthly_payment=primary_offer.get("monthly_payment"),
+        year=primary_offer.get("year"),
+        condition=primary_offer.get("condition"),
+        location=primary_offer.get("location"),
+        specs=primary_offer.get("specs", {}),
+        pros=primary_offer.get("pros", []),
+        cons=primary_offer.get("cons", []),
+        analogs_mentioned=analysis.get("analogs_suggested", []) or market_report.get("analogs_suggested", []),
+        market_report=MarketReport(
+            item=market_report.get("item"),
+            market_range=market_report.get("market_range"),
+            median_price=market_report.get("median_price"),
+            mean_price=market_report.get("mean_price"),
+            client_price=market_report.get("client_price"),
+            client_price_ok=market_report.get("client_price_ok"),
+            explanation=market_report.get("explanation"),
+            source_summary=market_report.get("source_summary", []),
+            analysis_basis=market_report.get("analysis_basis"),
+            fallback_used=market_report.get("fallback_used", False),
+            fallback_analog=market_report.get("fallback_analog"),
+            fallback_analogs=market_report.get("fallback_analogs", []),
+            agent_audit=market_report.get("agent_audit", []),
+            agent_audit_summary=market_report.get("agent_audit_summary", {}),
+        ),
+        analogs_details=analogs_for_response,
+        sources=sources_for_response,
+        best_original_offer=best_original_offer,
+        best_original_analysis=best_original_analysis,
+        best_offers_comparison=best_offers_comparison,
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root() -> HTMLResponse:
     index_path = templates_dir / "index.html"
@@ -354,6 +466,20 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
 
     memory_context = None
     if memory_service and session_id:
+        import json
+        recent = memory_service.repository.get_recent_interactions(session_id, limit=5)
+        for interaction in recent:
+            if interaction["kind"] == "describe" and interaction["user_input"].strip().lower() == item_str.strip().lower():
+                if interaction["price"] == client_price:
+                    try:
+                        metadata = json.loads(interaction["metadata_json"])
+                        cached_result = metadata.get("result_cache")
+                        if cached_result:
+                            logger.info("Return cached describe result for %s", item_str)
+                            return build_describe_response(cached_result)
+                    except Exception as e:
+                        logger.warning("Failed to load cached result: %s", e)
+
         context = memory_service.build_context(
             session_id=session_id,
             user_id=user_id,
@@ -408,115 +534,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
             )
             logger.info("Memory saved after describe: session_id=%s item=%s", session_id, item_str)
 
-        market_report = analysis.get("market_report") or {}
-        offers_used = analysis.get("offers_used") or []
-        analogs_details_raw = analysis.get("analogs_details") or market_report.get("analogs_details") or []
-
-        sources_for_response: list[dict] = []
-        for offer in offers_used:
-            sources_for_response.append(
-                {
-                    "title": offer.get("title"),
-                    "source": offer.get("source"),
-                    "url": offer.get("url"),
-                    "price_str": offer.get("price_str"),
-                    "price": offer.get("price"),
-                    "monthly_payment_str": offer.get("monthly_payment_str"),
-                    "model": offer.get("model"),
-                    "year": offer.get("year"),
-                    "condition": offer.get("condition"),
-                    "location": offer.get("location"),
-                }
-            )
-
-        primary_offer = select_primary_offer(offers_used, market_report.get("best_original_offer"))
-
-        analogs_for_response = [
-            AnalogDetail(
-                name=analog.get("name", "Аналог"),
-                avg_price_guess=analog.get("avg_price_guess"),
-                note=analog.get("note"),
-                pros=analog.get("pros", []),
-                cons=analog.get("cons", []),
-            )
-            for analog in analogs_details_raw
-        ]
-
-        best_original_offer = market_report.get("best_original_offer")
-        best_original_analysis_raw = market_report.get("best_original_analysis", {})
-        best_offers_comparison_raw = market_report.get("best_offers_comparison", {})
-
-        best_original_analysis = None
-        if best_original_analysis_raw:
-            best_original_analysis = BestOfferAnalysis(
-                best_index=best_original_analysis_raw.get("best_index"),
-                best_score=best_original_analysis_raw.get("best_score"),
-                reason=best_original_analysis_raw.get("reason"),
-                ranking=best_original_analysis_raw.get("ranking", []),
-            )
-
-        best_offers_comparison = {
-            analog_name: BestOffersComparison(
-                winner=comp_data.get("winner"),
-                original_score=comp_data.get("original_score"),
-                analog_score=comp_data.get("analog_score"),
-                price_comparison=comp_data.get("price_comparison"),
-                pros_original=comp_data.get("pros_original", []),
-                cons_original=comp_data.get("cons_original", []),
-                pros_analog=comp_data.get("pros_analog", []),
-                cons_analog=comp_data.get("cons_analog", []),
-                recommendation=comp_data.get("recommendation"),
-                use_cases_original=comp_data.get("use_cases_original", []),
-                use_cases_analog=comp_data.get("use_cases_analog", []),
-                original_url=comp_data.get("original_url"),
-                analog_url=comp_data.get("analog_url"),
-                original_title=comp_data.get("original_title"),
-                analog_title=comp_data.get("analog_title"),
-                original_price_formatted=comp_data.get("original_price_formatted"),
-                analog_price_formatted=comp_data.get("analog_price_formatted"),
-                comparison_details=comp_data.get("comparison_details"),
-                key_differences=comp_data.get("key_differences", []),
-                sonar_comparison=comp_data.get("sonar_comparison", False),
-            )
-            for analog_name, comp_data in best_offers_comparison_raw.items()
-        }
-
-        return DescribeResponse(
-            category=primary_offer.get("category"),
-            vendor=primary_offer.get("vendor"),
-            model=primary_offer.get("model"),
-            price=market_report.get("median_price"),
-            currency=primary_offer.get("currency", "RUB"),
-            monthly_payment=primary_offer.get("monthly_payment"),
-            year=primary_offer.get("year"),
-            condition=primary_offer.get("condition"),
-            location=primary_offer.get("location"),
-            specs=primary_offer.get("specs", {}),
-            pros=primary_offer.get("pros", []),
-            cons=primary_offer.get("cons", []),
-            analogs_mentioned=analysis.get("analogs_suggested", []) or market_report.get("analogs_suggested", []),
-            market_report=MarketReport(
-                item=market_report.get("item"),
-                market_range=market_report.get("market_range"),
-                median_price=market_report.get("median_price"),
-                mean_price=market_report.get("mean_price"),
-                client_price=market_report.get("client_price"),
-                client_price_ok=market_report.get("client_price_ok"),
-                explanation=market_report.get("explanation"),
-                source_summary=market_report.get("source_summary", []),
-                analysis_basis=market_report.get("analysis_basis"),
-                fallback_used=market_report.get("fallback_used", False),
-                fallback_analog=market_report.get("fallback_analog"),
-                fallback_analogs=market_report.get("fallback_analogs", []),
-                agent_audit=market_report.get("agent_audit", []),
-                agent_audit_summary=market_report.get("agent_audit_summary", {}),
-            ),
-            analogs_details=analogs_for_response,
-            sources=sources_for_response,
-            best_original_offer=best_original_offer,
-            best_original_analysis=best_original_analysis,
-            best_offers_comparison=best_offers_comparison,
-        )
+        return build_describe_response(analysis)
 
     except ValueError as exc:
         logger.error("Ошибка валидации: %s", exc)
