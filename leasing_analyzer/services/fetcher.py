@@ -17,7 +17,7 @@ from leasing_analyzer.core.utils import is_valid_url
 logger = get_logger(__name__)
 
 class SeleniumFetcher:
-    """Загрузчик страниц на базе Selenium с ленивой инициализацией и автовосстановлением."""
+    """Загрузчик страниц на базе Selenium с пулом потокобезопасных драйверов и автовосстановлением."""
     
     def __init__(self):
         self.driver: Optional[webdriver.Chrome] = None
@@ -30,7 +30,7 @@ class SeleniumFetcher:
         if configured_path:
             if os.path.exists(configured_path):
                 return configured_path
-            logger.warning("%s is set but does not exist: %s", env_name, configured_path)
+            logger.warning("%s задан, но не существует: %s", env_name, configured_path)
 
         for candidate in candidates:
             resolved_path = shutil.which(candidate)
@@ -57,23 +57,23 @@ class SeleniumFetcher:
             )
             if chrome_bin:
                 self._options.binary_location = chrome_bin
-                logger.info("chromium binary resolved: %s", chrome_bin)
+                logger.info("Путь к chromium определен: %s", chrome_bin)
             self._options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
         )
         return self._options
 
-    def _is_driver_alive(self) -> bool:
+    def _is_driver_alive(self, driver: webdriver.Chrome) -> bool:
         """Проверяет, отвечает ли драйвер."""
-        if not self.driver:
+        if not driver:
             return False
         try:
-            service = getattr(self.driver, "service", None)
+            service = getattr(driver, "service", None)
             process = getattr(service, "process", None)
             if process is not None and process.poll() is not None:
                 return False
-            return bool(getattr(self.driver, "session_id", None))
+            return bool(getattr(driver, "session_id", None))
         except Exception:
             return False
     
@@ -110,9 +110,35 @@ class SeleniumFetcher:
             logger.info("chromedriver ready")
             return self.driver
         except Exception as e:
-            logger.error(f"Failed to create Chrome driver: {e}")
-            self.driver = None
+            logger.error(f"Не удалось создать Chrome драйвер: {e}")
             raise
+
+    def _acquire_driver(self) -> webdriver.Chrome:
+        """Берет драйвер из пула или создает новый."""
+        try:
+            while True:
+                driver = self._drivers_pool.get_nowait()
+                if self._is_driver_alive(driver):
+                    return driver
+                else:
+                    self._discard_driver(driver)
+        except queue.Empty:
+            return self._create_driver()
+
+    def _release_driver(self, driver: webdriver.Chrome):
+        """Возвращает драйвер в пул."""
+        if driver and self._is_driver_alive(driver):
+            self._drivers_pool.put(driver)
+        else:
+            self._discard_driver(driver)
+
+    def _discard_driver(self, driver: webdriver.Chrome):
+        """Уничтожает сломанный драйвер."""
+        if driver:
+            self._close_single_driver(driver)
+            with self._drivers_lock:
+                if driver in self._all_drivers:
+                    self._all_drivers.remove(driver)
 
     def close(self):
         """Закрывает драйвер и освобождает ресурсы."""
@@ -138,12 +164,13 @@ class SeleniumFetcher:
     ) -> Optional[str]:
         """Загружает страницу со скроллом для динамического контента и автовосстановлением."""
         if not is_valid_url(url):
-            logger.warning(f"Invalid URL: {url}")
+            logger.warning(f"Некорректный URL: {url}")
             return None
         
         for attempt in range(self._max_restart_attempts):
+            driver = None
             try:
-                driver = self._get_driver()
+                driver = self._acquire_driver()
                 
                 # Пытаемся загрузить страницу с таймаутом
                 try:
@@ -188,31 +215,25 @@ class SeleniumFetcher:
                             else:
                                 break  # Просто выходим из скролла и продолжаем с текущим HTML
                 except Exception as scroll_err:
-                    logger.debug(f"Scroll failed for {url}: {scroll_err}")
-                    # Проверяем, жив ли драйвер
-                    if not self._is_driver_alive():
-                        logger.warning("Driver died during scroll, restarting...")
-                        self._restart_driver()
-                        if attempt < self._max_restart_attempts - 1:
-                            continue
-                    # Все равно продолжаем: часть контента уже могла загрузиться
+                    logger.debug(f"Скроллинг завершился неудачей для {url}: {scroll_err}")
                 
                 # HTML успешно получен
                 try:
-                    return driver.page_source
+                    html = driver.page_source
+                    self._release_driver(driver)
+                    return html
                 except Exception as e:
-                    logger.debug(f"Could not get page source: {e}")
-                    if not self._is_driver_alive():
-                        logger.warning("Driver died when getting page source, restarting...")
-                        self._restart_driver()
-                        if attempt < self._max_restart_attempts - 1:
-                            continue
+                    logger.debug(f"Не удалось получить исходный код страницы: {e}")
+                    self._discard_driver(driver)
+                    if attempt < self._max_restart_attempts - 1:
+                        time.sleep(1)
+                        continue
                     return None
                     
             except TimeoutException as e:
-                logger.warning(f"Timeout loading {url}: {e}")
+                logger.warning(f"Таймаут при загрузке {url}: {e}")
+                self._discard_driver(driver)
                 if attempt < self._max_restart_attempts - 1:
-                    self._restart_driver()
                     time.sleep(1)
                     continue
                 return None
@@ -223,20 +244,19 @@ class SeleniumFetcher:
                     "connection", "winerror 10061", "refused", 
                     "newconnectionerror", "max retries exceeded"
                 ]):
-                    logger.warning(f"Connection error loading {url}: {e}")
+                    logger.warning(f"Ошибка соединения при загрузке {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
                         self._restart_driver()
                         time.sleep(2)  # Для проблем соединения ждем чуть дольше
                         continue
-                    return None
                 else:
-                    logger.error(f"Failed to load {url}: {e}")
+                    logger.error(f"Не удалось загрузить {url}: {e}")
                     if attempt < self._max_restart_attempts - 1:
                         # Для прочих ошибок тоже пробуем один перезапуск
                         self._restart_driver()
                         time.sleep(1)
                         continue
-                    return None
+                return None
         
         # Все попытки исчерпаны
         logger.error(f"Failed to load {url} after {self._max_restart_attempts} attempts")

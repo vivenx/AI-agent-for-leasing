@@ -32,9 +32,9 @@ memory_service = None
 if CONFIG.memory_enabled:
     memory_repository = MemoryRepository(CONFIG.memory_db_path)
     memory_service = MemoryService(memory_repository)
-    logger.info("Memory service enabled: db=%s", CONFIG.memory_db_path)
+    logger.info("Сервис памяти включен: db=%s", CONFIG.memory_db_path)
 else:
-    logger.info("Memory service disabled by configuration")
+    logger.info("Сервис памяти отключен в конфигурации")
 
 
 app = FastAPI(
@@ -329,7 +329,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
         )
         memory_context = context.to_prompt_block() if context else None
         logger.info(
-            "Memory context prepared for describe: session_id=%s item=%s context_present=%s",
+            "Контекст памяти подготовлен для анализа: session_id=%s item=%s context_present=%s",
             session_id,
             item_str,
             bool(memory_context),
@@ -344,37 +344,45 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
     )
 
     try:
-        try:
-            analysis = run_analysis(
-                item=item_str,
-                client_price=client_price,
-                use_ai=use_ai,
-                num_results=num_results,
-                memory_context=memory_context,
-            )
-        except OverflowError as exc:
-            logger.warning("Overflow в run_analysis: %s", exc)
-            analysis = {
-                "item": item_str,
-                "offers_used": [],
-                "market_report": {
-                    "item": item_str,
-                    "market_range": None,
-                    "median_price": None,
-                    "mean_price": None,
-                    "client_price": client_price,
-                    "client_price_ok": None,
-                    "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
-                },
-            }
-
+        analysis = None
         if memory_service and session_id:
-            memory_service.save_describe_interaction(
-                session_id=session_id,
-                user_input=item_str,
-                result=analysis,
-            )
-            logger.info("Memory saved after describe: session_id=%s item=%s", session_id, item_str)
+            cached = memory_service.get_cached_describe_result(session_id, item_str, client_price=client_price)
+            if cached:
+                logger.info("Найден кэшированный результат анализа в памяти для: %s", item_str)
+                analysis = cached
+
+        if not analysis:
+            try:
+                analysis = run_analysis(
+                    item=item_str,
+                    client_price=client_price,
+                    use_ai=use_ai,
+                    num_results=num_results,
+                    memory_context=memory_context,
+                )
+            except OverflowError as exc:
+                logger.warning("Overflow в run_analysis: %s", exc)
+                analysis = {
+                    "item": item_str,
+                    "offers_used": [],
+                    "market_report": {
+                        "item": item_str,
+                        "market_range": None,
+                        "median_price": None,
+                        "mean_price": None,
+                        "client_price": client_price,
+                        "client_price_ok": None,
+                        "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
+                    },
+                }
+
+            if memory_service and session_id:
+                memory_service.save_describe_interaction(
+                    session_id=session_id,
+                    user_input=item_str,
+                    result=analysis,
+                )
+                logger.info("Данные сохранены в память после анализа: session_id=%s item=%s", session_id, item_str)
 
         market_report = analysis.get("market_report") or {}
         offers_used = analysis.get("offers_used") or []
@@ -541,7 +549,7 @@ async def analyze_document_endpoint(
             )
             memory_context = context.to_prompt_block() if context else None
             logger.info(
-                "Memory context prepared for document analysis: session_id=%s file=%s context_present=%s",
+                "Контекст памяти подготовлен для анализа документа: session_id=%s file=%s context_present=%s",
                 sessionId,
                 file.filename,
                 bool(memory_context),
@@ -560,7 +568,7 @@ async def analyze_document_endpoint(
                 file_name=file.filename,
                 result=result,
             )
-            logger.info("Memory saved after document analysis: session_id=%s file=%s", sessionId, file.filename)
+            logger.info("Данные сохранены в память после анализа документа: session_id=%s file=%s", sessionId, file.filename)
         return DocumentAnalyzeResponse(**result)
     except ValueError as exc:
         logger.warning("Ошибка анализа документа %s: %s", file.filename, exc)
