@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Optional
 from urllib.parse import quote_plus, unquote, urlparse
 
+from bs4 import BeautifulSoup
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
@@ -33,6 +34,13 @@ from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
     filter_price_outliers,
+)
+from leasing_analyzer.services.user_sources import (
+    STATUS_ERROR,
+    STATUS_INSUFFICIENT_DATA,
+    STATUS_SUCCESS,
+    UserSource,
+    validate_user_source_url,
 )
 
 
@@ -512,6 +520,114 @@ def _process_single_url(
     except Exception as e:
         logger.warning(f"[{idx}/{total}] Ошибка при парсинге {url}: {e}")
         return []
+
+
+def process_user_source_urls(
+    user_sources: list[UserSource],
+    item_name: str,
+    fetcher: SeleniumFetcher,
+    analyzer: Optional[AIAnalyzer],
+    use_ai: bool = True,
+) -> tuple[list[LeasingOffer], list[UserSource]]:
+    """Processes user-provided concrete pages through the existing Selenium parser."""
+    if not user_sources:
+        return [], []
+
+    model_name, requested_year = extract_query_constraints(item_name)
+    avito_parser = AvitoParserStrategy()
+    generic_parser = GenericParserStrategy(analyzer, use_ai)
+
+    all_offers: list[LeasingOffer] = []
+    reports: list[UserSource] = []
+
+    for idx, source in enumerate(user_sources, 1):
+        url = source.get("url", "")
+        report: UserSource = {
+            "id": source.get("id", ""),
+            "url": url,
+            "status": STATUS_ERROR,
+            "reason": "",
+            "error_message": None,
+            "found_data": {},
+            "participated_in_calculation": False,
+        }
+
+        is_valid, validation_reason = validate_user_source_url(url, resolve_host=False)
+        if not is_valid:
+            report["reason"] = validation_reason
+            report["error_message"] = validation_reason
+            reports.append(report)
+            continue
+
+        domain = urlparse(url).netloc.replace("www.", "")
+        result = {
+            "link": url,
+            "title": f"Пользовательский источник: {domain}",
+            "snippet": "",
+            "source_name": domain,
+            "is_user_source": True,
+        }
+        parser = avito_parser if CONFIG.avito_domain in domain else generic_parser
+
+        try:
+            scroll_times = CONFIG.avito_scroll_times if CONFIG.avito_domain in domain else CONFIG.other_scroll_times
+            html = fetcher.fetch_page(url, scroll_times=scroll_times, wait=CONFIG.scroll_wait)
+            if not html:
+                report["reason"] = "Selenium не смог загрузить страницу."
+                report["error_message"] = "Пустой HTML или ошибка загрузки страницы."
+                reports.append(report)
+                continue
+            page_title = BeautifulSoup(html, "html.parser").title
+            title = page_title.get_text(" ", strip=True) if page_title else result["title"]
+            raw_offers = parser.parse(html, url, model_name or item_name, title)
+            if not raw_offers and parser is not generic_parser:
+                raw_offers = generic_parser.parse(html, url, model_name or item_name, title)
+        except Exception as exc:
+            report["reason"] = "Источник не удалось обработать."
+            report["error_message"] = str(exc)[:300]
+            reports.append(report)
+            logger.warning("[USER_SOURCE] processing failed url=%s error=%s", url, exc)
+            continue
+
+        offers = filter_low_quality_offers(raw_offers)
+        offers = filter_offers_by_requested_year(offers, requested_year)
+        offers = deduplicate_offers(offers)
+        offers = deduplicate_offers_by_seller(offers)
+
+        found_data = {
+            "offers_count": len(offers),
+            "prices_count": sum(1 for offer in offers if offer.price is not None),
+            "monthly_payments_count": sum(1 for offer in offers if offer.monthly_payment is not None),
+            "offers": [
+                {
+                    "title": offer.title,
+                    "url": offer.url,
+                    "price": offer.price,
+                    "price_str": offer.price_str,
+                    "monthly_payment": offer.monthly_payment,
+                    "monthly_payment_str": offer.monthly_payment_str,
+                    "year": offer.year,
+                    "model": offer.model,
+                    "source": offer.source,
+                }
+                for offer in offers[:5]
+            ],
+        }
+
+        report["found_data"] = found_data
+        if offers:
+            all_offers.extend(offers)
+            report["status"] = STATUS_SUCCESS
+            report["participated_in_calculation"] = True
+            report["reason"] = "Источник дал данные для расчёта."
+        else:
+            report["status"] = STATUS_INSUFFICIENT_DATA
+            report["participated_in_calculation"] = False
+            report["reason"] = "На странице не удалось найти достаточно данных для расчёта."
+
+        reports.append(report)
+
+    return all_offers, reports
 
 
 def search_and_analyze(

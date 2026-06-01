@@ -14,7 +14,8 @@ from leasing_analyzer.core.utils import digits_to_int
 from leasing_analyzer.parsing.content_cleaner import ContentCleaner
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import analyze_market, collect_analogs
-from leasing_analyzer.services.search import search_and_analyze
+from leasing_analyzer.services.search import process_user_source_urls, search_and_analyze
+from leasing_analyzer.services.user_sources import UserSource
 
 logger = get_logger(__name__)
 
@@ -47,6 +48,8 @@ def get_user_input() -> UserInput:
         "client_price": client_price,
         "use_ai": use_ai,
         "num_results": num_results,
+        "user_sources": [],
+        "use_only_user_sources": False,
     }
 
 
@@ -92,6 +95,11 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
     use_ai = params["use_ai"]
     num_results = params["num_results"]
     memory_context = params.get("memory_context")
+    user_sources: list[UserSource] = params.get("user_sources", [])
+    use_only_user_sources = bool(params.get("use_only_user_sources", False))
+
+    if use_only_user_sources and not user_sources:
+        raise ValueError("Включён режим «только пользовательские источники», но ссылки не добавлены.")
 
     audit_trail = AgentAuditTrail()
     audit_trail.record(
@@ -152,23 +160,48 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
 
     try:
         offers: list[LeasingOffer] = []
+        user_source_offers: list[LeasingOffer] = []
+        user_source_reports: list[UserSource] = []
         analysis_basis = "original_model"
         fallback_analogs: list[str] = []
         fallback_analog: Optional[str] = None
 
-        primary_query = f"{item} {CONFIG.default_search_suffix}"
-        offers = search_and_analyze(
-            primary_query,
-            fetcher,
-            analyzer,
-            num_results=num_results,
-            use_ai=use_ai,
-            item_name=item,
-            audit_trail=audit_trail,
-            search_label="original_exact",
-        )
+        if user_sources:
+            user_source_offers, user_source_reports = process_user_source_urls(
+                user_sources=user_sources,
+                item_name=item,
+                fetcher=fetcher,
+                analyzer=analyzer,
+                use_ai=use_ai,
+            )
+            audit_trail.record(
+                action="user_sources.process",
+                status="ok" if user_source_offers else "warning",
+                risk="low" if user_source_offers else "medium",
+                confidence=0.85 if user_source_offers else 0.35,
+                message="User-provided sources processed",
+                sources=len(user_sources),
+                offers=len(user_source_offers),
+            )
 
-        if not offers:
+        if use_only_user_sources:
+            offers = user_source_offers
+            analysis_basis = "user_sources_only"
+        else:
+            primary_query = f"{item} {CONFIG.default_search_suffix}"
+            offers = search_and_analyze(
+                primary_query,
+                fetcher,
+                analyzer,
+                num_results=num_results,
+                use_ai=use_ai,
+                item_name=item,
+                audit_trail=audit_trail,
+                search_label="original_exact",
+            )
+            offers.extend(user_source_offers)
+
+        if not offers and not use_only_user_sources:
             logger.warning("Exact model search returned no results, trying relaxed query...")
             relaxed_query = f"{item} {CONFIG.fallback_search_suffix}"
             offers = search_and_analyze(
@@ -181,8 +214,9 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
                 audit_trail=audit_trail,
                 search_label="original_relaxed",
             )
+            offers.extend(user_source_offers)
 
-        if not offers:
+        if not offers and not use_only_user_sources:
             fallback_analogs, _ = collect_analogs(
                 item_name=item,
                 offers=[],
@@ -240,6 +274,8 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
             report["fallback_analog"] = fallback_analog
             report["fallback_analogs"] = fallback_analogs
             report["analogs_suggested"] = fallback_analogs if fallback_analogs else []
+            report["user_sources"] = user_source_reports
+            report["use_only_user_sources"] = use_only_user_sources
             audit_trail.record(
                 action="pipeline.market_report",
                 status="warning",
@@ -267,6 +303,8 @@ def run_pipeline(params: UserInput) -> tuple[list[LeasingOffer], dict]:
         report["fallback_analog"] = fallback_analog
         report["fallback_analogs"] = fallback_analogs
         report["analogs_suggested"] = fallback_analogs if analysis_basis == "analog_fallback" else []
+        report["user_sources"] = user_source_reports
+        report["use_only_user_sources"] = use_only_user_sources
 
         if analysis_basis == "analog_fallback" and fallback_analog:
             report["explanation"] = (
@@ -297,6 +335,8 @@ def run_analysis(
     use_ai: bool = True,
     num_results: int = 5,
     memory_context: str | None = None,
+    user_sources: list[UserSource] | None = None,
+    use_only_user_sources: bool = False,
 ) -> dict:
     params: UserInput = {
         "item": item,
@@ -304,6 +344,8 @@ def run_analysis(
         "use_ai": use_ai,
         "num_results": num_results,
         "memory_context": memory_context,
+        "user_sources": user_sources or [],
+        "use_only_user_sources": use_only_user_sources,
     }
 
     offers, report = run_pipeline(params)

@@ -235,12 +235,13 @@ def normalize_url_for_comparison(url: str) -> str:
 def extract_price_candidate(text: str) -> Optional[int]:
     if not text:
         return None
-    currency_pattern = r"(\d[\d\s]*)\s*(₽|руб|rub|\$|€)"
+    money_number = r"\d{1,3}(?:[\s\u00a0]\d{3})+|\d+"
+    currency_pattern = rf"({money_number})\s*(₽|руб|rub|\$|€)"
     for raw_value, _ in re.findall(currency_pattern, text, flags=re.IGNORECASE):
         val = digits_to_int(raw_value)
         if val and val > CONFIG.min_valid_price:
             return val
-    for token in re.findall(r"\b\d[\d\s]*\b", text):
+    for token in re.findall(money_number, text):
         val = digits_to_int(token)
         if not val:
             continue

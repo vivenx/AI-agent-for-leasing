@@ -94,6 +94,8 @@ class UserInput(TypedDict):
     use_ai: bool
     num_results: int
     memory_context: Optional[str]
+    user_sources: list[dict]
+    use_only_user_sources: bool
 
 
 

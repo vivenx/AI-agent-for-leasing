@@ -26,6 +26,12 @@ setup_logging()
 
 from leasing_analyzer.document.service import analyze_document
 from leasing_analyzer.services.pipeline import run_analysis
+from leasing_analyzer.services.user_sources import (
+    add_user_source,
+    delete_user_source,
+    list_user_sources,
+    update_user_source_results,
+)
 
 logger = get_logger(__name__)
 memory_service = None
@@ -78,6 +84,7 @@ class DescribeRequest(BaseModel):
     numResults: Optional[int] = Field(5, ge=1, le=10, description="Количество результатов для поиска")
     sessionId: Optional[str] = Field(None, min_length=8, max_length=128, description="ID сессии для памяти")
     userId: Optional[str] = Field(None, min_length=1, max_length=128, description="ID пользователя")
+    useOnlyUserSources: Optional[bool] = Field(False, description="Использовать только пользовательские источники")
 
     @field_validator("text")
     @classmethod
@@ -108,6 +115,8 @@ class MarketReport(BaseModel):
     fallback_used: bool = False
     fallback_analog: Optional[str] = None
     fallback_analogs: list[str] = Field(default_factory=list)
+    user_sources: list[dict] = Field(default_factory=list)
+    use_only_user_sources: bool = False
     agent_audit: list[dict] = Field(default_factory=list)
     agent_audit_summary: dict = Field(default_factory=dict)
 
@@ -221,6 +230,22 @@ class ClearMemoryResponse(BaseModel):
     session_id: str
 
 
+class UserSourceRequest(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2000)
+
+
+class UserSourceResponse(BaseModel):
+    id: str
+    url: str
+    status: str
+    reason: Optional[str] = None
+    error_message: Optional[str] = None
+    found_data: dict = Field(default_factory=dict)
+    participated_in_calculation: bool = False
+    added_at: Optional[str] = None
+    last_checked_at: Optional[str] = None
+
+
 def select_primary_offer(offers: list[dict], best_offer: Optional[dict]) -> dict:
     candidates: list[dict] = []
     if isinstance(best_offer, dict) and best_offer:
@@ -254,6 +279,27 @@ async def root() -> HTMLResponse:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/user-sources", response_model=list[UserSourceResponse])
+async def get_user_sources() -> list[UserSourceResponse]:
+    return [UserSourceResponse(**source) for source in list_user_sources()]
+
+
+@app.post("/api/user-sources", response_model=UserSourceResponse)
+async def create_user_source(payload: UserSourceRequest) -> UserSourceResponse:
+    try:
+        source = add_user_source(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return UserSourceResponse(**source)
+
+
+@app.delete("/api/user-sources/{source_id}")
+async def remove_user_source(source_id: str) -> dict:
+    if not delete_user_source(source_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден.")
+    return {"deleted": True}
 
 
 @app.post("/api/session/start", response_model=StartSessionResponse)
@@ -319,6 +365,8 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
     num_results = describe_request.numResults if describe_request.numResults else 5
     session_id = describe_request.sessionId
     user_id = describe_request.userId
+    use_only_user_sources = bool(describe_request.useOnlyUserSources)
+    user_sources = list_user_sources()
 
     memory_context = None
     if memory_service and session_id:
@@ -345,7 +393,8 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
 
     try:
         analysis = None
-        if memory_service and session_id:
+        uses_user_sources = use_only_user_sources or bool(user_sources)
+        if memory_service and session_id and not uses_user_sources:
             cached = memory_service.get_cached_describe_result(session_id, item_str, client_price=client_price)
             if cached:
                 logger.info("Найден кэшированный результат анализа в памяти для: %s", item_str)
@@ -359,6 +408,8 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                     use_ai=use_ai,
                     num_results=num_results,
                     memory_context=memory_context,
+                    user_sources=user_sources,
+                    use_only_user_sources=use_only_user_sources,
                 )
             except OverflowError as exc:
                 logger.warning("Overflow в run_analysis: %s", exc)
@@ -376,7 +427,10 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                     },
                 }
 
-            if memory_service and session_id:
+            market_report_for_update = analysis.get("market_report") or {}
+            update_user_source_results(market_report_for_update.get("user_sources", []))
+
+            if memory_service and session_id and not uses_user_sources:
                 memory_service.save_describe_interaction(
                     session_id=session_id,
                     user_input=item_str,
@@ -484,6 +538,8 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 fallback_used=market_report.get("fallback_used", False),
                 fallback_analog=market_report.get("fallback_analog"),
                 fallback_analogs=market_report.get("fallback_analogs", []),
+                user_sources=market_report.get("user_sources", []),
+                use_only_user_sources=market_report.get("use_only_user_sources", False),
                 agent_audit=market_report.get("agent_audit", []),
                 agent_audit_summary=market_report.get("agent_audit_summary", {}),
             ),

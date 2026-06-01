@@ -395,6 +395,8 @@ input::placeholder {
     border-radius: 14px;
     background: var(--glass);
     border: 1px solid var(--border);
+    min-width: 0;
+    overflow: hidden;
 }
 
 .source-card-head {
@@ -402,12 +404,16 @@ input::placeholder {
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
+    min-width: 0;
 }
 
 .source-title {
     color: var(--text);
     text-decoration: none;
     font-weight: 600;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .source-title:hover {
@@ -424,6 +430,7 @@ input::placeholder {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    min-width: 0;
 }
 
 .source-meta span {
@@ -432,6 +439,9 @@ input::placeholder {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
     font-size: 12px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .text-preview {
@@ -589,4 +599,93 @@ input::-webkit-inner-spin-button {
 /* Убираем стрелочки для Firefox */
 input[type=number] {
     -moz-appearance: textfield;
+}
+
+.secondary-btn {
+    padding: 12px 14px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.user-source-add {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.4;
+}
+
+.checkbox-row input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+}
+
+.user-sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.user-source-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--glass);
+    min-width: 0;
+}
+
+.user-source-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-source-main a {
+    color: var(--text);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.user-source-main span,
+.user-source-reason,
+.user-source-found {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.user-source-found {
+    margin-top: 10px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.icon-btn {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
 }
