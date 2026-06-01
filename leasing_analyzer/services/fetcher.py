@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
 import time
 from typing import Optional
 
@@ -23,6 +24,7 @@ class SeleniumFetcher:
         self.driver: Optional[webdriver.Chrome] = None
         self._options: Optional[Options] = None
         self._max_restart_attempts = 3
+        self._driver_lock = threading.RLock()
 
     @staticmethod
     def _resolve_binary(env_name: str, candidates: list[str]) -> Optional[str]:
@@ -86,7 +88,7 @@ class SeleniumFetcher:
     
     def _get_driver(self) -> webdriver.Chrome:
         """Возвращает существующий ChromeDriver или создает новый после проверки состояния."""
-        if self.driver and self._is_driver_alive():
+        if self.driver and self._is_driver_alive(self.driver):
             return self.driver
         
         # Драйвер умер или отсутствует, создаем новый
@@ -96,12 +98,16 @@ class SeleniumFetcher:
         
         try:
             driver_bin = self._resolve_binary("CHROMEDRIVER_PATH", ["chromedriver"])
-            if not driver_bin:
-                raise RuntimeError(
-                    "ChromeDriver not found. Set CHROMEDRIVER_PATH or make chromedriver available in PATH."
+            if driver_bin:
+                logger.info("chromedriver binary resolved: %s", driver_bin)
+                service = Service(driver_bin)
+            else:
+                logger.warning(
+                    "ChromeDriver not found in CHROMEDRIVER_PATH or PATH; "
+                    "falling back to Selenium Manager."
                 )
-            logger.info("chromedriver binary resolved: %s", driver_bin)
-            self.driver = webdriver.Chrome(service=Service(driver_bin), options=self._get_options())
+                service = Service()
+            self.driver = webdriver.Chrome(service=service, options=self._get_options())
             # Настраиваем таймауты
             self.driver.set_page_load_timeout(CONFIG.page_load_timeout)
             self.driver.implicitly_wait(CONFIG.implicit_wait)
@@ -147,6 +153,15 @@ class SeleniumFetcher:
         scroll_times: int = CONFIG.default_scroll_times,
         wait: float = CONFIG.scroll_wait
     ) -> Optional[str]:
+        with self._driver_lock:
+            return self._fetch_page_unlocked(url, scroll_times=scroll_times, wait=wait)
+
+    def _fetch_page_unlocked(
+        self,
+        url: str,
+        scroll_times: int = CONFIG.default_scroll_times,
+        wait: float = CONFIG.scroll_wait
+    ) -> Optional[str]:
         """Загружает страницу со скроллом для динамического контента и автовосстановлением."""
         if not is_valid_url(url):
             logger.warning(f"Некорректный URL: {url}")
@@ -170,7 +185,7 @@ class SeleniumFetcher:
                     except Exception as e:
                         logger.debug(f"Could not get partial content: {e}")
                         # Проверяем, жив ли драйвер
-                        if not self._is_driver_alive():
+                        if not self._is_driver_alive(driver):
                             logger.warning("Driver died after timeout, restarting...")
                             self._restart_driver()
                             if attempt < self._max_restart_attempts - 1:
@@ -192,7 +207,7 @@ class SeleniumFetcher:
                         except Exception as scroll_err:
                             logger.debug(f"Scroll error for {url}: {scroll_err}")
                             # Проверяем, жив ли драйвер
-                            if not self._is_driver_alive():
+                            if not self._is_driver_alive(driver):
                                 logger.warning("Driver died during scroll, restarting...")
                                 self._restart_driver()
                                 if attempt < self._max_restart_attempts - 1:

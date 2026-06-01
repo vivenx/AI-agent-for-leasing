@@ -15,6 +15,10 @@ const elements = {
   filePicker: byId("filePicker"),
   useAI: byId("useAI"),
   numResults: byId("numResults"),
+  userSourceUrl: byId("userSourceUrl"),
+  addUserSourceBtn: byId("addUserSourceBtn"),
+  useOnlyUserSources: byId("useOnlyUserSources"),
+  userSourcesList: byId("userSourcesList"),
   submitBtn: byId("submitBtn"),
   error: byId("error"),
   placeholder: byId("placeholder"),
@@ -36,6 +40,8 @@ const elements = {
   warningsSection: byId("warningsSection"),
   warningsList: byId("warningsList"),
   sourcesList: byId("sourcesList"),
+  userSourcesReportSection: byId("userSourcesReportSection"),
+  userSourcesReportList: byId("userSourcesReportList"),
   uiFilters: byId("ui-filters"),
   filterMaxPrice: byId("filterMaxPrice"),
   filterYear: byId("filterYear"),
@@ -46,6 +52,7 @@ let currentMode = "manual";
 let abortController = null;
 let timeoutId = null;
 let requestTimedOut = false;
+let userSources = [];
 
 
 function applyFilters() {
@@ -67,6 +74,8 @@ function init() {
   bindFileInput();
   bindForm();
   bindFilters();
+  bindUserSources();
+  loadUserSources();
   setMode("manual");
 }
 
@@ -167,6 +176,82 @@ function bindFilters() {
   elements.clientPrice?.addEventListener("input", applyFilters);
 }
 
+function bindUserSources() {
+  elements.addUserSourceBtn?.addEventListener("click", addUserSource);
+  elements.userSourceUrl?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addUserSource();
+    }
+  });
+}
+
+async function loadUserSources() {
+  try {
+    userSources = await requestJson("/api/user-sources", { method: "GET" });
+    renderUserSourcesManager();
+  } catch (error) {
+    renderUserSourcesManager();
+  }
+}
+
+async function addUserSource() {
+  const url = (elements.userSourceUrl?.value || "").trim();
+  if (!url) {
+    showError("Введите ссылку на конкретную страницу модели или предложения.");
+    return;
+  }
+
+  try {
+    const source = await requestJson("/api/user-sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    userSources = userSources.filter((item) => item.id !== source.id);
+    userSources.push(source);
+    elements.userSourceUrl.value = "";
+    hideError();
+    renderUserSourcesManager();
+  } catch (error) {
+    showError(resolveErrorMessage(error));
+  }
+}
+
+async function deleteUserSource(sourceId) {
+  try {
+    await requestJson(`/api/user-sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
+    userSources = userSources.filter((source) => source.id !== sourceId);
+    renderUserSourcesManager();
+  } catch (error) {
+    showError(resolveErrorMessage(error));
+  }
+}
+
+function renderUserSourcesManager() {
+  if (!elements.userSourcesList) return;
+  if (!userSources.length) {
+    elements.userSourcesList.innerHTML = '<div class="empty-note">Ссылки пока не добавлены</div>';
+    return;
+  }
+
+  elements.userSourcesList.innerHTML = userSources
+    .map((source) => `
+      <div class="user-source-row">
+        <div class="user-source-main">
+          <a href="${escapeAttribute(source.url)}" target="_blank">${escapeHtml(source.url)}</a>
+          <span>${escapeHtml(formatUserSourceStatus(source.status))}</span>
+        </div>
+        <button type="button" class="icon-btn" data-delete-source="${escapeAttribute(source.id)}" title="Удалить">×</button>
+      </div>
+    `)
+    .join("");
+
+  elements.userSourcesList.querySelectorAll("[data-delete-source]").forEach((button) => {
+    button.addEventListener("click", () => deleteUserSource(button.dataset.deleteSource));
+  });
+}
+
 
 function setMode(mode) {
   currentMode = mode;
@@ -208,6 +293,11 @@ async function submitManual() {
     return;
   }
 
+  if (elements.useOnlyUserSources?.checked && userSources.length === 0) {
+    showError("Добавьте хотя бы одну пользовательскую ссылку или отключите режим только пользовательских источников.");
+    return;
+  }
+
   startLoading();
 
   try {
@@ -220,6 +310,7 @@ async function submitManual() {
         useAI: elements.useAI?.value === "true",
         numResults,
         sessionId: getOrCreateSessionId(),
+        useOnlyUserSources: Boolean(elements.useOnlyUserSources?.checked),
       }),
     });
     renderManualResult(data, clientPrice);
@@ -334,6 +425,8 @@ function renderManualResult(data, fallbackClientPrice) {
   `;
 
   renderSources(data.sources || []);
+  renderUserSourcesReport(marketReport.user_sources || []);
+  syncUserSourceStatuses(marketReport.user_sources || []);
 
   elements.specsSection.classList.add("hidden");
   elements.documentSection.classList.add("hidden");
@@ -394,6 +487,8 @@ function renderDocumentResult(data) {
   }
 
   renderSources(data.sources || []);
+  renderUserSourcesReport(marketReport.user_sources || []);
+  syncUserSourceStatuses(marketReport.user_sources || []);
 
   elements.specsSection.classList.remove("hidden");
   elements.documentSection.classList.remove("hidden");
@@ -462,6 +557,58 @@ function renderSources(sources, setupFilters = true) {
       `;
     })
     .join("");
+}
+
+function renderUserSourcesReport(sources) {
+  if (!elements.userSourcesReportSection || !elements.userSourcesReportList) return;
+  if (!sources || sources.length === 0) {
+    elements.userSourcesReportSection.classList.add("hidden");
+    elements.userSourcesReportList.innerHTML = '<div class="empty-note">Пользовательские источники не использовались</div>';
+    return;
+  }
+
+  elements.userSourcesReportSection.classList.remove("hidden");
+  elements.userSourcesReportList.innerHTML = sources
+    .map((source) => {
+      const foundData = source.found_data || {};
+      const offers = Array.isArray(foundData.offers) ? foundData.offers : [];
+      const dataText = [
+        `предложений: ${foundData.offers_count || 0}`,
+        `цен: ${foundData.prices_count || 0}`,
+      ].join(", ");
+      return `
+        <div class="source-card user-source-report-card">
+          <div class="source-card-head">
+            <a class="source-title" href="${escapeAttribute(source.url)}" target="_blank">${escapeHtml(source.url)}</a>
+            <div class="source-price">${escapeHtml(formatUserSourceStatus(source.status))}</div>
+          </div>
+          <div class="source-meta">
+            <span>${escapeHtml(dataText)}</span>
+            <span>${source.participated_in_calculation ? "участвовал в расчёте" : "не участвовал в расчёте"}</span>
+          </div>
+          <div class="user-source-reason">${escapeHtml(source.reason || "Причина не указана.")}</div>
+          ${offers.length ? `<div class="user-source-found">${offers.map((offer) => escapeHtml([offer.title, offer.price_str || formatPrice(offer.price), offer.year].filter(Boolean).join(" · "))).join("<br>")}</div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function syncUserSourceStatuses(reportSources) {
+  if (!Array.isArray(reportSources) || reportSources.length === 0) return;
+  const byId = new Map(reportSources.map((source) => [source.id, source]));
+  userSources = userSources.map((source) => byId.get(source.id) || source);
+  renderUserSourcesManager();
+}
+
+function formatUserSourceStatus(status) {
+  const labels = {
+    pending: "ожидает обработки",
+    success: "успешно",
+    error: "ошибка",
+    insufficient_data: "данных недостаточно",
+  };
+  return labels[status] || status || "ожидает обработки";
 }
 
 function setupYearFilter(sources) {

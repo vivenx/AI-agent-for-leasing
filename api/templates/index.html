@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Анализатор имущества | Sonar AI</title>
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
-    <link rel="stylesheet" href="/static/style.css?v=10" />
+    <link rel="stylesheet" href="/static/style.css?v=12" />
 </head>
 <body>
 <div class="container">
@@ -74,6 +74,25 @@
                 />
             </div>
 
+            <div class="form-group user-sources-control">
+                <label for="userSourceUrl">Пользовательские источники</label>
+                <div class="user-source-add">
+                    <input
+                        type="text"
+                        id="userSourceUrl"
+                        placeholder="https://example.ru/model/bmw-x5-2024"
+                    />
+                    <button type="button" class="secondary-btn" id="addUserSourceBtn">Добавить</button>
+                </div>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="useOnlyUserSources" />
+                    <span>Использовать только пользовательские источники</span>
+                </label>
+                <div id="userSourcesList" class="user-sources-list">
+                    <div class="empty-note">Ссылки пока не добавлены</div>
+                </div>
+            </div>
+
             <button type="submit" class="submit-btn" id="submitBtn">Начать анализ</button>
             <div id="error" class="error"></div>
         </form>
@@ -130,6 +149,15 @@
                 </div>
             </div>
 
+            <div id="userSourcesReportSection" class="details-section hidden">
+                <div class="section-header">
+                    <h3>Пользовательские источники</h3>
+                </div>
+                <div id="userSourcesReportList" class="sources-list">
+                    <div class="empty-note">Пользовательские источники появятся после анализа</div>
+                </div>
+            </div>
+
             <div id="specsSection" class="details-section hidden">
                 <div class="section-header">
                     <h3>Характеристики</h3>
@@ -159,6 +187,6 @@
     </div>
 </div>
 
-<script src="/static/script.js?v=13"></script>
+<script src="/static/script.js?v=14"></script>
 </body>
 </html>
