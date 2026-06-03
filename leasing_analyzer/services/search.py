@@ -369,40 +369,27 @@ def search_google(
     return list(results)
 
 
-MANDATORY_SOURCES = [
-    {
-        "name": "alfaleasing.ru",
-        "search_url": "https://alfaleasing.ru/search/?q={query}",
-    },
-    {
-        "name": "sberleasing.ru",
-        "search_url": "https://www.sberleasing.ru/search/?q={query}",
-    },
-    {
-        "name": "avito.ru",
-        "search_url": "https://www.avito.ru/rossiya?q={query}+лизинг",
-    },
+MANDATORY_DOMAINS = [
+    "alfaleasing.ru",
+    "sberleasing.ru",
+    "avito.ru",
 ]
 
 
 def generate_mandatory_urls(model_name: str) -> list[dict]:
-    """Генерирует URL для обязательных лизинговых источников."""
+    """Ищет конкретные объявления на обязательных площадках через Google."""
     model_name = clean_search_query(model_name, max_words=8, max_length=80)
     if not model_name:
         return []
 
-    query_encoded = quote_plus(model_name.lower())
     mandatory = []
-    for source in MANDATORY_SOURCES:
-        url = source["search_url"].format(query=query_encoded)
-        mandatory.append(
-            {
-                "link": url,
-                "title": f"{model_name} - {source['name']}",
-                "is_mandatory": True,
-                "source_name": source["name"],
-            }
-        )
+    for domain in MANDATORY_DOMAINS:
+        query = f"site:{domain} {model_name} лизинг"
+        results = search_google(query, num_results=3, reject_noisy_markers=False)
+        for r in results:
+            r["is_mandatory"] = True
+            r["source_name"] = domain
+        mandatory.extend(results)
     return mandatory
 
 
@@ -416,7 +403,6 @@ def _is_noisy_search_result(result: dict) -> bool:
         "/spec/",
         "/specs/",
         "/characteristics/",
-        "/catalog/",
         "/manual",
         "/zapchasti",
         "/parts",
@@ -483,6 +469,7 @@ def _process_single_url(
     parser: ParserStrategy,
     idx: int,
     total: int,
+    fallback_parser: Optional[ParserStrategy] = None,
 ) -> list[LeasingOffer]:
     """Обрабатывает один URL и возвращает найденные предложения."""
     url = result.get("link", "")
@@ -514,6 +501,11 @@ def _process_single_url(
 
     try:
         offers = parser.parse(html, url, model_name, title)
+        
+        if not offers and fallback_parser:
+            logger.debug(f"[{idx}/{total}] Основной парсер не нашел предложений, пробуем fallback_parser")
+            offers = fallback_parser.parse(html, url, model_name, title)
+
         if offers:
             logger.debug(f"[{idx}/{total}] Найдено {len(offers)} предложений на {domain}")
         return offers
@@ -725,6 +717,7 @@ def search_and_analyze(
             is_avito = CONFIG.avito_domain in domain
 
             parser = avito_parser if is_avito else generic_parser
+            fallback_parser = generic_parser if is_avito else None
 
             future = executor.submit(
                 _process_single_url,
@@ -734,6 +727,7 @@ def search_and_analyze(
                 parser,
                 idx,
                 len(all_results),
+                fallback_parser,
             )
             futures[future] = (idx, url)
 
