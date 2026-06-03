@@ -150,11 +150,7 @@ function bindForm() {
     event.preventDefault();
     hideError();
 
-    const numResults = Number(elements.numResults?.value || "5");
-    if (!Number.isInteger(numResults) || numResults < 1 || numResults > 10) {
-      showError("Количество результатов должно быть от 1 до 10.");
-      return;
-    }
+    const numResults = 10;
 
     if (currentMode === "manual") {
       await submitManual();
@@ -280,7 +276,7 @@ function setMode(mode) {
 async function submitManual() {
   const item = (elements.item?.value || "").trim();
   const rawClientPrice = (elements.clientPrice?.value || "").trim();
-  const numResults = Number(elements.numResults?.value || "5");
+  const numResults = 10;
   const clientPrice = rawClientPrice ? Number(rawClientPrice) : null;
 
   if (!item || item.length < 3) {
@@ -323,7 +319,7 @@ async function submitManual() {
 
 async function submitDocument() {
   const file = elements.documentFile?.files?.[0];
-  const numResults = Number(elements.numResults?.value || "5");
+  const numResults = 10;
 
   if (!file) {
     showError("Выберите документ для анализа.");
