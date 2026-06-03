@@ -395,7 +395,7 @@ def generate_mandatory_urls(model_name: str) -> list[dict]:
         else:
             query = f"site:{domain} {model_name} лизинг"
             
-        results = search_google(query, num_results=3, reject_noisy_markers=False, clean=False)
+        results = search_google(query, num_results=10, reject_noisy_markers=False, clean=False)
         for r in results:
             if _is_noisy_search_result(r, model_name):
                 continue

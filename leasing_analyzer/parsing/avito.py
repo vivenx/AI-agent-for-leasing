@@ -153,7 +153,7 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
                 
         url = normalize_url(href or "")
 
-        price_tag = card.select_one('[data-marker="item-price"]') or card.select_one("meta[itemprop='price']")
+        price_tag = card.select_one("meta[itemprop='price']") or card.select_one('[data-marker="item-price"]')
         price_val = None
         if price_tag:
             price_text = price_tag.get("content") or price_tag.get_text(" ", strip=True)
