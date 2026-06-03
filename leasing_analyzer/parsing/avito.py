@@ -163,6 +163,9 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         location = normalize_whitespace(location_tag.get_text(" ", strip=True)) if location_tag else None
 
         subtitle = card.get_text(" ", strip=True)
+        if "лизинг" not in subtitle.lower():
+            continue
+
         year = _extract_year_from_text(subtitle)
         power = _extract_power(subtitle)
         mileage = _extract_mileage(subtitle)
@@ -195,6 +198,11 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         if not name and not href:
             continue
         if not is_relevant_avito_title(name, model_name):
+            continue
+
+        description = str(item.get("description", ""))
+        combined_text = f"{name} {description}".lower()
+        if "лизинг" not in combined_text:
             continue
 
         merged_data = {
