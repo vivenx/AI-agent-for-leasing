@@ -408,16 +408,19 @@ input::placeholder {
 }
 
 .source-title {
-    color: var(--text);
-    text-decoration: none;
+    color: var(--primary);
+    text-decoration: underline;
+    text-decoration-color: rgba(59, 130, 246, 0.4);
     font-weight: 600;
     min-width: 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+    transition: color 0.2s, text-decoration-color 0.2s;
 }
 
 .source-title:hover {
-    color: var(--primary);
+    color: var(--primary-dark);
+    text-decoration-color: var(--primary-dark);
 }
 
 .source-price {

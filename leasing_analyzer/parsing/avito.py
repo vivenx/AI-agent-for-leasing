@@ -141,8 +141,17 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         if not is_relevant_avito_title(title, model_name):
             continue
 
-        href = title_tag.get("href") or ""
-        url = normalize_url(href)
+        href = title_tag.get("href")
+        if not href:
+            # item-title might be an h3 inside an a tag
+            parent_a = title_tag.find_parent("a")
+            if parent_a:
+                href = parent_a.get("href")
+            else:
+                fallback_a = card.select_one("a[href]")
+                href = fallback_a.get("href") if fallback_a else ""
+                
+        url = normalize_url(href or "")
 
         price_tag = card.select_one('[data-marker="item-price"]') or card.select_one("meta[itemprop='price']")
         price_val = None
