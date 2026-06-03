@@ -390,12 +390,18 @@ def generate_mandatory_urls(model_name: str) -> list[dict]:
 
     mandatory = []
     for domain in MANDATORY_DOMAINS:
-        query = f"site:{domain} {model_name} лизинг"
+        if domain in {"avito.ru", "auto.ru", "drom.ru"}:
+            query = f"site:{domain} {model_name} купить OR лизинг"
+        else:
+            query = f"site:{domain} {model_name} лизинг"
+            
         results = search_google(query, num_results=3, reject_noisy_markers=False, clean=False)
         for r in results:
+            if _is_noisy_search_result(r, model_name):
+                continue
             r["is_mandatory"] = True
             r["source_name"] = domain
-        mandatory.extend(results)
+            mandatory.append(r)
     return mandatory
 
 
