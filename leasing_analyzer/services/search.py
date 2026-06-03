@@ -350,14 +350,18 @@ def search_google(
     query: str,
     num_results: int = 10,
     reject_noisy_markers: bool = True,
+    clean: bool = True,
 ) -> list[dict]:
     """Поиск Google через Serper API с возвратом списка для совместимости."""
-    cleaned_query = clean_search_query(query, reject_noisy_markers=reject_noisy_markers)
-    if not cleaned_query:
-        logger.warning(f"Пропуск некорректного поискового запроса: {query!r}")
-        return []
-    if cleaned_query != query:
-        logger.info(f"Очищенный поисковый запрос: {query!r} -> {cleaned_query!r}")
+    if clean:
+        cleaned_query = clean_search_query(query, reject_noisy_markers=reject_noisy_markers)
+        if not cleaned_query:
+            logger.warning(f"Пропуск некорректного поискового запроса: {query!r}")
+            return []
+        if cleaned_query != query:
+            logger.info(f"Очищенный поисковый запрос: {query!r} -> {cleaned_query!r}")
+    else:
+        cleaned_query = query
 
     if not CONFIG.serper_api_key:
         logger.warning("SERPER_API_KEY не задан, пропускаем поиск в Google")
@@ -385,7 +389,7 @@ def generate_mandatory_urls(model_name: str) -> list[dict]:
     mandatory = []
     for domain in MANDATORY_DOMAINS:
         query = f"site:{domain} {model_name} лизинг"
-        results = search_google(query, num_results=3, reject_noisy_markers=False)
+        results = search_google(query, num_results=3, reject_noisy_markers=False, clean=False)
         for r in results:
             r["is_mandatory"] = True
             r["source_name"] = domain
@@ -393,11 +397,12 @@ def generate_mandatory_urls(model_name: str) -> list[dict]:
     return mandatory
 
 
-def _is_noisy_search_result(result: dict) -> bool:
+def _is_noisy_search_result(result: dict, model_name: str = "") -> bool:
     url = result.get("link", "")
     parsed = urlparse(url)
     path = parsed.path.lower()
     title = (result.get("title") or "").lower()
+    domain = parsed.netloc.lower().replace("www.", "")
 
     noisy_path_parts = (
         "/spec/",
@@ -409,6 +414,27 @@ def _is_noisy_search_result(result: dict) -> bool:
     )
     if any(part in path for part in noisy_path_parts):
         return True
+
+    if domain == "avito.ru":
+        if not re.search(r"_\d+/?$", path):
+            return True
+
+    if "q=" in parsed.query.lower():
+        return True
+
+    path_parts = [p for p in path.strip('/').split('/') if p]
+    if path_parts:
+        last_part = path_parts[-1]
+        model_words = [w.lower() for w in model_name.split() if w]
+        
+        if last_part in ("katalog", "catalog", "products", "freight-transport", "gruzovye", "kommercheskiy-transport"):
+            return True
+            
+        if model_words and last_part in model_words:
+            return True
+            
+        if not re.search(r"\d", path):
+            return True
 
     noisy_title_markers = (
         "характеристик",
@@ -425,7 +451,7 @@ def _is_noisy_search_result(result: dict) -> bool:
     return any(marker in title for marker in noisy_title_markers)
 
 
-def filter_search_results(results: list[dict], max_results: int = 10) -> list[dict]:
+def filter_search_results(results: list[dict], model_name: str, max_results: int = 10) -> list[dict]:
     """Фильтрует поисковые результаты, удаляя заблокированные домены."""
     filtered = []
     blocked_domains = {"chelindleasing"}
@@ -441,7 +467,7 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
         if reason:
             logger.info(f"[PAGE_FILTER] отфильтровано reason={reason} url={url}")
             continue
-        if _is_noisy_search_result(result):
+        if _is_noisy_search_result(result, model_name):
             logger.debug(f"Пропуск зашумленного результата поиска: {url}")
             continue
         filtered.append(result)
@@ -661,7 +687,7 @@ def search_and_analyze(
         logger.warning(f"Нет результатов Google для запроса: {query}")
         filtered_google = []
     else:
-        filtered_google = filter_search_results(search_results, num_results)
+        filtered_google = filter_search_results(search_results, mandatory_query_name or model_name, num_results)
 
     all_results = merge_with_mandatory(filtered_google, mandatory_urls)
     logger.info(f"Всего URL до фильтра релевантности: {len(all_results)}")
