@@ -69,7 +69,7 @@ class Config:
     # Настройки доменов
     avito_domain: str = "avito.ru"
     default_search_suffix: str = "лизинг"
-    fallback_search_suffix: str = "купить"
+    fallback_search_suffix: str = "в лизинг"
 
     # Параллельная обработка
     max_workers: int = 3
