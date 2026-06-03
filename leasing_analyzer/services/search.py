@@ -29,7 +29,7 @@ from leasing_analyzer.parsing.base import (
     GenericParserStrategy,
     ParserStrategy,
 )
-from leasing_analyzer.parsing.helpers import deduplicate_offers, deduplicate_offers_by_seller
+from leasing_analyzer.parsing.helpers import deduplicate_offers
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
@@ -47,8 +47,8 @@ from leasing_analyzer.services.user_sources import (
 logger = get_logger(__name__)
 _requests_session = get_http_session()
 _STATUS_CHECK_TIMEOUT = 8
-_BROWSER_REACHABLE_STATUSES = {401, 403, 405, 406, 407, 408, 409, 425, 429}
-_DEAD_STATUSES = {404, 410, 451, 500, 501, 502, 503, 504, 521, 522, 523, 524}
+_BROWSER_REACHABLE_STATUSES = {401, 403, 405, 406, 407, 408, 409, 425, 429, 503}
+_DEAD_STATUSES = {404, 410, 451, 500, 501, 502, 504, 521, 522, 523, 524}
 _WIKIPEDIA_DOMAINS = {"wikipedia.org", "wikimedia.org", "wikiwand.com"}
 _IRRELEVANT_ROUTE_MARKERS = {
     "article": (
@@ -592,7 +592,6 @@ def process_user_source_urls(
         offers = filter_low_quality_offers(raw_offers)
         offers = filter_offers_by_requested_year(offers, requested_year)
         offers = deduplicate_offers(offers)
-        offers = deduplicate_offers_by_seller(offers)
 
         found_data = {
             "offers_count": len(offers),
@@ -634,7 +633,7 @@ def search_and_analyze(
     query: str,
     fetcher: SeleniumFetcher,
     analyzer: Optional[AIAnalyzer],
-    num_results: int = 5,
+    num_results: int = 15,
     use_ai: bool = True,
     item_name: Optional[str] = None,
     audit_trail: AgentAuditTrail | None = None,
@@ -752,7 +751,6 @@ def search_and_analyze(
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
-    offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
     logger.info(f"Всего предложений после обработки: {len(offers)}")
