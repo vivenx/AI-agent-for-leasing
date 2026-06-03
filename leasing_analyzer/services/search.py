@@ -636,6 +636,12 @@ def search_and_analyze(
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
+
+    # Limit results to requested number BEFORE seller deduplication
+    # to ensure we return the requested count
+    offers = offers[:num_results]
+    logger.info(f"Total offers after limiting to num_results={num_results}: {len(offers)}")
+
     offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
