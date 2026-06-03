@@ -560,6 +560,7 @@ function renderDetails(container, data, emptyText) {
 }
 
 function renderSources(sources, setupFilters = true) {
+  elements.uiFilters?.classList.remove("hidden")
   if (setupFilters) {
     allSources = sources;
     setupLocationFilter(sources);
