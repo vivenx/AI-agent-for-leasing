@@ -38,6 +38,7 @@ const elements = {
   sourcesList: byId("sourcesList"),
   uiFilters: byId("ui-filters"),
   filterMaxPrice: byId("filterMaxPrice"),
+  filterLocation: byId("filterLocation"),
   filterYear: byId("filterYear"),
   linkPreviewModal: byId("linkPreviewModal"),
   previewLoading: byId("previewLoading"),
@@ -59,14 +60,16 @@ let requestTimedOut = false;
 function applyFilters() {
   const maxPrice = parseFloat(elements.filterMaxPrice?.value) || Infinity;
   const selectedYear = elements.filterYear?.value;
+  const selectedLocation = elements.filterLocation?.value;
 
   const filtered = allSources.filter(source => {
     const priceMatch = (source.price || 0) <= maxPrice;
     const yearMatch = selectedYear === "all" || String(source.year) === selectedYear;
-    return priceMatch && yearMatch;
+    const locationMatch = selectedLocation === "all" || String(source.location) === selectedLocation;
+    return priceMatch && yearMatch && locationMatch;
   });
 
-  renderSources(filtered, false); // Перерисовываем список (false - чтобы не сбрасывать фильтры снова)
+  renderSources(filtered, false);
 }
 
 function init() {
@@ -169,10 +172,13 @@ function bindFilters() {
   // Слушатель на ввод цены в фильтре "Макс. цена" (срабатывает сразу при печати)
   elements.filterMaxPrice?.addEventListener("input", applyFilters);
   
+  // Слушатель на выбор региона
+  elements.filterLocation?.addEventListener("change", applyFilters);
+  
   // Слушатель на выбор года
   elements.filterYear?.addEventListener("change", applyFilters);
 
-  //Слушатель на ввод цены клиента (срабатывает сразу при печати)
+  // Слушатель на ввод цены клиента (срабатывает сразу при печати)
   elements.clientPrice?.addEventListener("input", applyFilters);
 }
 
@@ -545,6 +551,7 @@ function renderDetails(container, data, emptyText) {
 function renderSources(sources, setupFilters = true) {
   if (setupFilters) {
     allSources = sources;
+    setupLocationFilter(sources);
     setupYearFilter(sources);
   }
 
@@ -615,6 +622,34 @@ function setupYearFilter(sources) {
     // Если годов нет - УДАЛЯЕМ селект из верстки (display: none)
     // Благодаря Flexbox в CSS, поле цены само прыгнет на его место (в самый край)
     elements.filterYear.style.display = "none";
+  }
+}
+
+function setupLocationFilter(sources) {
+  if (!elements.filterLocation || !elements.uiFilters) return;
+
+  // Ищем уникальные регионы
+  const locations = [...new Set(sources.map(s => s.location).filter(Boolean))].sort();
+  
+  // Показываем общий блок фильтров, если есть результаты
+  if (sources.length > 0) {
+    elements.uiFilters.classList.remove("hidden");
+  } else {
+    elements.uiFilters.classList.add("hidden");
+    return;
+  }
+
+  // Логика перестроения:
+  if (locations.length > 0) {
+    // Если регионы есть - показываем селект
+    elements.filterLocation.style.display = "block"; 
+    elements.filterLocation.innerHTML = '<option value="all">Все регионы</option>';
+    locations.forEach(location => {
+      elements.filterLocation.innerHTML += `<option value="${location}">${escapeHtml(String(location))}</option>`;
+    });
+  } else {
+    // Если регионов нет - УДАЛЯЕМ селект из верстки (display: none)
+    elements.filterLocation.style.display = "none";
   }
 }
 
