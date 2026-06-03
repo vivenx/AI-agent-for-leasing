@@ -630,13 +630,13 @@ input::placeholder {
 .filters-container {
     display: flex;
     align-items: center;
-    gap: 12px; /* Расстояние между инпутом и выпадашками */
+    gap: 10px; /* Расстояние между инпутом и выпадашками */
     flex-wrap: wrap; /* Чтобы на мелких экранах не ломалось */
-    margin-top: 10px;
+    margin-top: 0px;
 }
 
 .filters-container.hidden {
-    display: none;
+    display: none !important;
 }
 
 /* Красивые поля ввода для фильтров */
@@ -657,8 +657,16 @@ input::placeholder {
 }
 
 .filter-input {
-    width: 110px;
-    text-align: center;
+    width: 140px !important;
+    height: 36px;            
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: all 0.2s ease;
 }
 
 .filter-select {
@@ -699,13 +707,13 @@ input::placeholder {
     }
     .filters-container {
         width: 100%;
+        flex-wrap: wrap;
     }
     .filter-input, .custom-select-wrapper {
         flex: 1;
         width: 100%;
     }
 }
-
 /* Цветовая индикация отклонения от цены клиента */
 .price-normal { color: var(--accent) !important; }  /* Выгодно или в норме (Зеленый) */
 .price-warning { color: var(--warning) !important; } /* Дороже на 10-20% (Желтый) */
@@ -824,7 +832,7 @@ input[type=number] {
 /* Контейнер кастомного селекта */
 .custom-select-wrapper {
     position: relative;
-    width: 155px;
+    width: 140px;
     user-select: none;
 }
 
@@ -834,11 +842,13 @@ input[type=number] {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 16px;
-    background: rgba(15, 23, 42, 0.6); /* Тёмное полупрозрачное стекло */
+    width: 100%;
+    height: 36px;            /* Высота один в один как у инпута цены */
+    padding: 8px 14px;
+    background: rgba(15, 23, 42, 0.6);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 10px;
-    color: #94a3b8;
+    color: var(--text-secondary);
     font-size: 13px;
     cursor: pointer;
     transition: all 0.2s ease;

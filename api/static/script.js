@@ -560,7 +560,17 @@ function renderDetails(container, data, emptyText) {
 }
 
 function renderSources(sources, setupFilters = true) {
-  elements.uiFilters?.classList.remove("hidden")
+  // Получаем контейнер фильтров
+  const filtersCont = document.getElementById("ui-filters");
+
+  if (!sources || sources.length === 0) {
+    // Если предложений нет (или массив пустой) — принудительно прячем фильтры
+    filtersCont?.classList.add("hidden");
+  } else {
+    // Если предложения пришли — убираем hidden и показываем блок
+    filtersCont?.classList.remove("hidden");
+  }
+
   if (setupFilters) {
     allSources = sources;
     setupLocationFilter(sources);
@@ -583,7 +593,6 @@ function renderSources(sources, setupFilters = true) {
         } else if (diff > 0.10) {
           priceClass = "price-warning"; // Больше чем на 10% дороже
         }
-        // Если diff <= 0.10 или цена ниже клиентской, остается price-normal
       }
 
       const title = source.title || "Источник";
@@ -606,6 +615,8 @@ function renderSources(sources, setupFilters = true) {
       `;
     })
     .join("");
+
+  bindPreviewModal(); 
 }
 
 function setupYearFilter(sources) {
