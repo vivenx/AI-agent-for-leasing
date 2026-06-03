@@ -377,6 +377,8 @@ MANDATORY_DOMAINS = [
     "alfaleasing.ru",
     "sberleasing.ru",
     "avito.ru",
+    "auto.ru",
+    "drom.ru",
 ]
 
 
@@ -415,15 +417,14 @@ def _is_noisy_search_result(result: dict, model_name: str = "") -> bool:
     if any(part in path for part in noisy_path_parts):
         return True
 
-    if domain == "avito.ru":
-        if not re.search(r"_\d+/?$", path):
-            return True
-
     if "q=" in parsed.query.lower():
         return True
 
+    # Для классифайдов списочные страницы полезны для парсера списков
+    is_classified = domain in {"avito.ru", "auto.ru", "drom.ru", "spec.drom.ru"}
+
     path_parts = [p for p in path.strip('/').split('/') if p]
-    if path_parts:
+    if path_parts and not is_classified:
         last_part = path_parts[-1]
         model_words = [w.lower() for w in model_name.split() if w]
         
@@ -454,7 +455,15 @@ def _is_noisy_search_result(result: dict, model_name: str = "") -> bool:
 def filter_search_results(results: list[dict], model_name: str, max_results: int = 10) -> list[dict]:
     """Фильтрует поисковые результаты, удаляя заблокированные домены."""
     filtered = []
-    blocked_domains = {"chelindleasing"}
+    blocked_domains = {
+        "chelindleasing",
+        "europlan",
+        "autogpbl",
+        "gazprom",
+        "vtb-leasing",
+        "resoleasing",
+        "baltlease",
+    }
 
     for result in results:
         if len(filtered) >= max_results:

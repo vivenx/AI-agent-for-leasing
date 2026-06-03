@@ -335,7 +335,8 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
     if not model_name:
         return True
     title_lower = title.lower()
-    keywords = [w for w in re.split(r"\s+", model_name.lower()) if w]
+    noisy_words = {"авито", "avito", "лизинг", "купить", "продажа", "цена", "в"}
+    keywords = [w for w in re.split(r"\s+", model_name.lower()) if w and w not in noisy_words]
     return all(keyword in title_lower for keyword in keywords)
 
 
