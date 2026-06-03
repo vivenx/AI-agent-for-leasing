@@ -629,8 +629,10 @@ input::placeholder {
 
 .filters-container {
     display: flex;
-    gap: 10px;
-    justify-content: flex-end; /* Прижимает содержимое вправо */
+    align-items: center;
+    gap: 12px; /* Расстояние между инпутом и выпадашками */
+    flex-wrap: wrap; /* Чтобы на мелких экранах не ломалось */
+    margin-top: 10px;
 }
 
 .filters-container.hidden {
@@ -698,8 +700,8 @@ input::placeholder {
     .filters-container {
         width: 100%;
     }
-    .filter-input, .filter-select {
-        flex: 1; /* На мобилках растянутся поровну */
+    .filter-input, .custom-select-wrapper {
+        flex: 1;
         width: 100%;
     }
 }
@@ -817,4 +819,108 @@ input[type=number] {
 @keyframes fadeIn {
     from { opacity: 0; transform: scale(0.98); }
     to { opacity: 1; transform: scale(1); }
+}
+
+/* Контейнер кастомного селекта */
+.custom-select-wrapper {
+    position: relative;
+    width: 155px;
+    user-select: none;
+}
+
+/* Главная плашка, на которую кликают */
+.custom-select-trigger {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: rgba(15, 23, 42, 0.6); /* Тёмное полупрозрачное стекло */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.custom-select-trigger:hover {
+    border-color: rgba(59, 130, 246, 0.5); /* Подсветка при наведении */
+    color: #f8fafc;
+}
+
+/* Стрелочка */
+.custom-select-trigger .arrow {
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid #64748b;
+    border-bottom: 2px solid #64748b;
+    transform: rotate(45deg) translateY(-2px);
+    transition: transform 0.2s ease;
+}
+
+/* Переворот стрелочки при открытии */
+.custom-select-wrapper.open .custom-select-trigger .arrow {
+    transform: rotate(-135deg) translateY(2px);
+    border-color: #3b82f6;
+}
+
+.custom-select-wrapper.open .custom-select-trigger {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* Сама выпадающая рамка (список) */
+.custom-options-box {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 100%;
+    background: #0f172a; /* Глубокий тёмный фон */
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 10px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    z-index: 100;
+    max-height: 220px;
+    overflow-y: auto;
+    transition: all 0.2s ease;
+}
+
+/* Показываем рамку при добавлении класса .open */
+.custom-select-wrapper.open .custom-options-box {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* Элементы списка */
+.custom-option {
+    padding: 10px 14px;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.custom-option:hover {
+    background: rgba(59, 130, 246, 0.15); /* Деликатный синий ховер */
+    color: #f8fafc;
+}
+
+/* Выбранный элемент внутри выпадашки */
+.custom-option.selected {
+    background: #3b82f6;
+    color: #ffffff;
+}
+
+/* Скроллбар внутри выпадашки, чтобы был аккуратным */
+.custom-options-box::-webkit-scrollbar {
+    width: 6px;
+}
+.custom-options-box::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
 }

@@ -120,12 +120,29 @@
                     <h3>Источники</h3>
                     <div id="ui-filters" class="filters-container hidden">
                         <input type="number" id="filterMaxPrice" class="filter-input" placeholder="Макс. цена">
-                        <select id="filterLocation" class="filter-select">
-                            <option value="all">Все регионы</option>
-                        </select>
-                        <select id="filterYear" class="filter-select">
-                            <option value="all">Все годы</option>
-                        </select>
+                        <!-- Кастомный фильтр регионов -->
+                        <div class="custom-select-wrapper" id="wrapperLocation">
+                            <div class="custom-select-trigger" id="triggerLocation">
+                                <span>Все регионы</span>
+                                <div class="arrow"></div>
+                            </div>
+                            <div class="custom-options-box" id="optionsLocation">
+                                <!-- Сюда JS сам добавит пункты -->
+                            </div>
+                            <input type="hidden" id="filterLocation" value="all">
+                        </div>
+
+                        <!-- Кастомный фильтр по году -->
+                        <div class="custom-select-wrapper" id="wrapperYear">
+                            <div class="custom-select-trigger" id="triggerYear">
+                                <span>Все годы</span>
+                                <div class="arrow"></div>
+                            </div>
+                            <div class="custom-options-box" id="optionsYear">
+                                <!-- Сюда JS сам добавит пункты -->
+                            </div>
+                            <input type="hidden" id="filterYear" value="all">
+                        </div>
                     </div>
                 </div>
                 <div id="sourcesList" class="sources-list">

@@ -169,17 +169,28 @@ function bindForm() {
 }
 
 function bindFilters() {
-  // Слушатель на ввод цены в фильтре "Макс. цена" (срабатывает сразу при печати)
   elements.filterMaxPrice?.addEventListener("input", applyFilters);
-  
-  // Слушатель на выбор региона
-  elements.filterLocation?.addEventListener("change", applyFilters);
-  
-  // Слушатель на выбор года
-  elements.filterYear?.addEventListener("change", applyFilters);
-
-  // Слушатель на ввод цены клиента (срабатывает сразу при печати)
   elements.clientPrice?.addEventListener("input", applyFilters);
+
+  // Логика открытия/закрытия кастомных рамок по клику
+  document.querySelectorAll(".custom-select-trigger").forEach(trigger => {
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wrapper = trigger.parentElement;
+      
+      // Закрываем другие открытые выпадашки
+      document.querySelectorAll(".custom-select-wrapper").forEach(w => {
+        if (w !== wrapper) w.classList.remove("open");
+      });
+      
+      wrapper.classList.toggle("open");
+    });
+  });
+
+  // Закрытие выпадашек при клике в любое место экрана
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".custom-select-wrapper").forEach(w => w.classList.remove("open"));
+  });
 }
 
 function bindPreviewModal() {
@@ -597,60 +608,70 @@ function renderSources(sources, setupFilters = true) {
 }
 
 function setupYearFilter(sources) {
-  if (!elements.filterYear || !elements.uiFilters) return;
+  const wrapper = document.getElementById("wrapperYear");
+  const trigger = document.getElementById("triggerYear");
+  const optionsBox = document.getElementById("optionsYear");
+  const hiddenInput = document.getElementById("filterYear");
+  if (!wrapper || !optionsBox || !hiddenInput) return;
 
-  // Ищем уникальные годы
+  wrapper.style.display = "block";
+
   const years = [...new Set(sources.map(s => s.year).filter(Boolean))].sort((a, b) => b - a);
-  
-  // Показываем общий блок фильтров, если есть результаты
-  if (sources.length > 0) {
-    elements.uiFilters.classList.remove("hidden");
-  } else {
-    elements.uiFilters.classList.add("hidden");
-    return;
-  }
 
-  // Логика перестроения:
-  if (years.length > 0) {
-    // Если годы есть - показываем селект, он встанет справа от цены
-    elements.filterYear.style.display = "block"; 
-    elements.filterYear.innerHTML = '<option value="all">Все годы</option>';
+  let optionsHtml = `<div class="custom-option selected" data-value="all">Все годы</div>`;
+  
+  if (sources.length > 0 && years.length > 0) {
     years.forEach(year => {
-      elements.filterYear.innerHTML += `<option value="${year}">${year}</option>`;
+      optionsHtml += `<div class="custom-option" data-value="${year}">${year}</div>`;
     });
-  } else {
-    // Если годов нет - УДАЛЯЕМ селект из верстки (display: none)
-    // Благодаря Flexbox в CSS, поле цены само прыгнет на его место (в самый край)
-    elements.filterYear.style.display = "none";
   }
+  
+  optionsBox.innerHTML = optionsHtml;
+  initCustomOptions(wrapper, trigger, optionsBox, hiddenInput);
 }
 
 function setupLocationFilter(sources) {
-  if (!elements.filterLocation || !elements.uiFilters) return;
+  const wrapper = document.getElementById("wrapperLocation");
+  const trigger = document.getElementById("triggerLocation");
+  const optionsBox = document.getElementById("optionsLocation");
+  const hiddenInput = document.getElementById("filterLocation");
+  if (!wrapper || !optionsBox || !hiddenInput) return;
 
-  // Ищем уникальные регионы
+  wrapper.style.display = "block";
+
   const locations = [...new Set(sources.map(s => s.location).filter(Boolean))].sort();
-  
-  // Показываем общий блок фильтров, если есть результаты
-  if (sources.length > 0) {
-    elements.uiFilters.classList.remove("hidden");
-  } else {
-    elements.uiFilters.classList.add("hidden");
-    return;
-  }
 
-  // Логика перестроения:
-  if (locations.length > 0) {
-    // Если регионы есть - показываем селект
-    elements.filterLocation.style.display = "block"; 
-    elements.filterLocation.innerHTML = '<option value="all">Все регионы</option>';
-    locations.forEach(location => {
-      elements.filterLocation.innerHTML += `<option value="${location}">${escapeHtml(String(location))}</option>`;
+  let optionsHtml = `<div class="custom-option selected" data-value="all">Все регионы</div>`;
+  
+  if (sources.length > 0 && locations.length > 0) {
+    locations.forEach(loc => {
+      optionsHtml += `<div class="custom-option" data-value="${loc}">${escapeHtml(String(loc))}</div>`;
     });
-  } else {
-    // Если регионов нет - УДАЛЯЕМ селект из верстки (display: none)
-    elements.filterLocation.style.display = "none";
   }
+  
+  optionsBox.innerHTML = optionsHtml;
+  initCustomOptions(wrapper, trigger, optionsBox, hiddenInput);
+}
+
+// Вспомогательная функция для обработки выбора в кастомном списке
+function initCustomOptions(wrapper, trigger, optionsBox, hiddenInput) {
+  optionsBox.querySelectorAll(".custom-option").forEach(option => {
+    option.addEventListener("click", (e) => {
+      e.stopPropagation();
+      
+      // Меняем активный класс у элементов списка
+      optionsBox.querySelectorAll(".custom-option").forEach(o => o.classList.remove("selected"));
+      option.classList.add("selected");
+      
+      // Меняем текст на триггере и пишем значение в скрытый инпут
+      trigger.querySelector("span").textContent = option.textContent;
+      hiddenInput.value = option.dataset.value;
+      
+      // Закрываем рамку и запускаем фильтрацию
+      wrapper.classList.remove("open");
+      applyFilters();
+    });
+  });
 }
 
 function normalizeObject(value) {
