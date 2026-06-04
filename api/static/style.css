@@ -395,6 +395,8 @@ input::placeholder {
     border-radius: 14px;
     background: var(--glass);
     border: 1px solid var(--border);
+    min-width: 0;
+    overflow: hidden;
 }
 
 .source-card-head {
@@ -402,12 +404,16 @@ input::placeholder {
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
+    min-width: 0;
 }
 
 .source-title {
     color: var(--text);
     text-decoration: none;
     font-weight: 600;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .source-title:hover {
@@ -424,6 +430,7 @@ input::placeholder {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    min-width: 0;
 }
 
 .source-meta span {
@@ -432,6 +439,9 @@ input::placeholder {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
     font-size: 12px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .text-preview {
@@ -444,136 +454,6 @@ input::placeholder {
     line-height: 1.7;
     white-space: pre-wrap;
     word-break: break-word;
-}
-
-.modal {
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 9999;
-    padding: 20px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-}
-
-.modal.show {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.modal-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-}
-
-.modal-panel {
-    position: relative;
-    width: min(100%, 920px);
-    max-width: 920px;
-    max-height: calc(100vh - 80px);
-    background: rgba(15, 23, 42, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 22px;
-    padding: 22px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    z-index: 1;
-}
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-}
-
-.modal-header h3 {
-    font-size: 18px;
-    margin: 0;
-}
-
-.modal-close {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(15, 23, 42, 0.9);
-    color: var(--text);
-    font-size: 22px;
-    cursor: pointer;
-}
-
-.modal-body {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    overflow: hidden;
-}
-
-.preview-loading,
-.preview-error {
-    min-height: 320px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    text-align: center;
-    padding: 20px;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.preview-error {
-    color: var(--danger);
-    font-size: 14px;
-    line-height: 1.6;
-}
-
-.preview-image {
-    width: 100%;
-    max-height: calc(100vh - 260px);
-    object-fit: contain;
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: #020617;
-}
-
-.preview-image.hidden,
-.preview-error.hidden,
-.preview-loading.hidden {
-    display: none;
-}
-
-.modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.button {
-    padding: 12px 18px;
-    border-radius: 14px;
-    border: none;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 14px;
-    background: linear-gradient(135deg, var(--primary), var(--accent));
-    color: white;
-}
-
-.button-secondary {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text);
-    border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 @keyframes spin {
@@ -731,206 +611,91 @@ input[type=number] {
     -moz-appearance: textfield;
 }
 
-/* ==========================================================================
-   Стили для безопасного предпросмотра сайтов (Фикс интерфейса)
-   ========================================================================== */
-
-/* Перекрашиваем панель модалки под общую тему */
-#linkPreviewModal .modal-panel {
-    background: var(--surface);
+.secondary-btn {
+    padding: 12px 14px;
+    background: rgba(15, 23, 42, 0.85);
     border: 1px solid var(--border);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 10px 10px -5px rgba(0, 0, 0, 0.7);
-    max-width: 900px; /* Делаем пошире, чтобы скриншот сайта смотрелся солидно */
-    width: 90%;
+    border-radius: 12px;
+    color: var(--text);
+    font-weight: 700;
+    cursor: pointer;
 }
 
-/* Оформление тела модалки */
-#linkPreviewModal .modal-body {
-    background: rgba(10, 15, 30, 0.6);
-    border: 1px solid rgba(59, 130, 246, 0.1);
-    border-radius: 8px;
-    padding: 0;
-    overflow: hidden;
-    min-height: 450px;
+.user-source-add {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.checkbox-row {
     display: flex;
-    align-items: stretch;
-    justify-content: center;
-    position: relative;
+    align-items: center;
+    gap: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.4;
 }
 
-/* Элемент самого скриншота */
-.preview-image {
-    width: 100%;
-    height: auto;
-    max-height: 70vh;
-    object-fit: contain;
-    display: block;
-    animation: fadeIn 0.3s ease-in-out;
+.checkbox-row input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
 }
 
-/* Кастомный красивый спиннер вместо скелетон-лоадера */
-.preview-loading {
+.user-sources-list {
     display: flex;
     flex-direction: column;
+    gap: 8px;
+}
+
+.user-source-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
     align-items: center;
-    justify-content: center;
-    gap: 16px;
-    width: 100%;          
-    flex-grow: 1;
-    padding: 30px;
-    box-sizing: border-box;
+    padding: 10px;
+    border: 1px solid var(--border);
     border-radius: 12px;
+    background: var(--glass);
+    min-width: 0;
 }
 
-/* Возвращаем колесику круглую форму, правильные размеры и вращение */
-#linkPreviewModal .loading-spinner {
-    width: 90px;
-    height: 90px;
-    border: 6px solid rgba(255, 255, 255, 0.1);
-    border-left-color: var(--primary);          /* Твой основной синий цвет */
-    border-radius: 50%;
-    background: transparent !important;         /* Сбрасываем старый перелив */
-    animation: spin 1s linear infinite !important; /* Запускаем обычное кручение */
-}
-
-/* Полностью вычищаем и скрываем старые скелетон-прямоугольники */
-.preview-loading::before,
-.preview-loading::after {
-    display: none !important;
-    content: none !important;
-}
-
-/* Текст загрузки */
-#linkPreviewModal .loading-text {
-    color: var(--text-secondary);
-    font-family: monospace;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-size: 0.85rem;
-    text-align: center;
-    margin-top: 10px;
-}
-
-/* Стили для ошибок (если бэкенд прислал ошибку или пустой экран) */
-.preview-error {
-    color: var(--danger);
-    background: rgba(190, 18, 60, 0.1);
-    border: 1px solid rgba(190, 18, 60, 0.3);
-    padding: 20px;
-    border-radius: 8px;
-    text-align: center;
-    font-family: inherit;
-    max-width: 80%;
-}
-
-/* Анимации */
-@keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
-}
-
-/* Контейнер кастомного селекта */
-.custom-select-wrapper {
-    position: relative;
-    width: 140px;
-    user-select: none;
-}
-
-/* Главная плашка, на которую кликают */
-.custom-select-trigger {
-    position: relative;
+.user-source-main {
+    min-width: 0;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    height: 36px;            /* Высота один в один как у инпута цены */
-    padding: 8px 14px;
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-source-main a {
+    color: var(--text);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.user-source-main span,
+.user-source-reason,
+.user-source-found {
     color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s ease;
+    font-size: 12px;
+    line-height: 1.5;
 }
 
-.custom-select-trigger:hover {
-    border-color: rgba(59, 130, 246, 0.5); /* Подсветка при наведении */
-    color: #f8fafc;
+.user-source-found {
+    margin-top: 10px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
-/* Стрелочка */
-.custom-select-trigger .arrow {
-    width: 8px;
-    height: 8px;
-    border-right: 2px solid #64748b;
-    border-bottom: 2px solid #64748b;
-    transform: rotate(45deg) translateY(-2px);
-    transition: transform 0.2s ease;
-}
-
-/* Переворот стрелочки при открытии */
-.custom-select-wrapper.open .custom-select-trigger .arrow {
-    transform: rotate(-135deg) translateY(2px);
-    border-color: #3b82f6;
-}
-
-.custom-select-wrapper.open .custom-select-trigger {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-}
-
-/* Сама выпадающая рамка (список) */
-.custom-options-box {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    width: 100%;
-    background: #0f172a; /* Глубокий тёмный фон */
-    border: 1px solid rgba(59, 130, 246, 0.2);
+.icon-btn {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border);
     border-radius: 10px;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-10px);
-    z-index: 100;
-    max-height: 220px;
-    overflow-y: auto;
-    transition: all 0.2s ease;
-}
-
-/* Показываем рамку при добавлении класса .open */
-.custom-select-wrapper.open .custom-options-box {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-}
-
-/* Элементы списка */
-.custom-option {
-    padding: 10px 14px;
-    color: #94a3b8;
-    font-size: 13px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
     cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.custom-option:hover {
-    background: rgba(59, 130, 246, 0.15); /* Деликатный синий ховер */
-    color: #f8fafc;
-}
-
-/* Выбранный элемент внутри выпадашки */
-.custom-option.selected {
-    background: #3b82f6;
-    color: #ffffff;
-}
-
-/* Скроллбар внутри выпадашки, чтобы был аккуратным */
-.custom-options-box::-webkit-scrollbar {
-    width: 6px;
-}
-.custom-options-box::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
+    font-size: 20px;
+    line-height: 1;
 }
