@@ -159,6 +159,14 @@ class SeleniumFetcher:
         for attempt in range(self._max_restart_attempts):
             try:
                 driver = self._get_driver()
+                
+                # --- ИЗМЕНЕНИЕ 1: Очистка состояния драйвера ---
+                # Это заставляет сайт «забыть» прошлые сессии и кэш
+                driver.delete_all_cookies()
+                driver.execute_script("window.localStorage.clear();")
+                driver.execute_script("window.sessionStorage.clear();")
+                # -----------------------------------------------
+
                 driver.set_page_load_timeout(CONFIG.page_load_timeout)
                 driver.get(url)
                 time.sleep(wait)
@@ -177,25 +185,19 @@ class SeleniumFetcher:
                 if not isinstance(full_height, (int, float)) or full_height <= 0:
                     full_height = viewport_height
                 full_height = min(int(full_height), max_height)
+                
+                # Сбрасываем размер окна перед установкой нового
+                driver.set_window_size(viewport_width, viewport_height) 
                 driver.set_window_size(viewport_width, max(viewport_height, full_height))
+                
                 time.sleep(0.25)
                 driver.execute_script("window.scrollTo(0, 0);")
                 time.sleep(0.25)
+                
                 return driver.get_screenshot_as_png()
 
             except TimeoutException as e:
-                # СПАСАТЕЛЬНАЯ ОПЕРАЦИЯ: Сайт завис, но мы пробуем сфоткать то, что успело отрендериться
-                logger.warning(f"Timeout while capturing screenshot for {url} (Attempt {attempt + 1}), trying to force capture fallback...")
-                try:
-                    if driver:
-                        # Пытаемся забрать скриншот текущего состояния страницы прямо сейчас
-                        fallback_png = driver.get_screenshot_as_png()
-                        logger.info(f"Successfully recovered partial screenshot for {url} despite timeout.")
-                        return fallback_png
-                except Exception as fallback_err:
-                    logger.error(f"Failed to grab partial screenshot on timeout: {fallback_err}")
-
-                # Если даже частичный скриншот сделать не вышло, перезапускаем драйвер по твоей логике
+                logger.warning(f"Timeout while capturing screenshot for {url} (Attempt {attempt + 1})")
                 if attempt < self._max_restart_attempts - 1:
                     self._restart_driver()
                     time.sleep(1)
@@ -204,14 +206,11 @@ class SeleniumFetcher:
                 
             except Exception as e:
                 logger.error(f"Failed to capture screenshot for {url}: {e}")
-                if not self._is_driver_alive():
-                    logger.warning("Driver died during screenshot capture, restarting...")
+                if attempt < self._max_restart_attempts - 1:
                     self._restart_driver()
-                    if attempt < self._max_restart_attempts - 1:
-                        continue
+                    continue
                 return None
 
-        logger.error(f"Failed to capture screenshot for {url} after {self._max_restart_attempts} attempts")
         return None
 
     def fetch_page(

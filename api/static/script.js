@@ -403,13 +403,17 @@ function openLinkPreview(url, title) {
 function closeLinkPreview() {
   if (!elements.linkPreviewModal) return;
 
-  // Закрываем окно, очищаем картинку и возвращаем скролл страницы
+  // 1. Закрываем окно и возвращаем скролл
   elements.linkPreviewModal.classList.remove("show");
   document.body.style.overflow = ""; 
   
-  if (elements.previewImage) {
-    elements.previewImage.src = "";
+  // 2. ОСВОБОЖДАЕМ ПАМЯТЬ
+  if (elements.previewImage?.src && elements.previewImage.src.startsWith("blob:")) {
+    URL.revokeObjectURL(elements.previewImage.src);
   }
+  
+  // 3. Очищаем src и скрываем элементы
+  elements.previewImage.src = "";
   
   elements.previewError?.classList.add("hidden");
   elements.previewLoading?.classList.add("hidden");
@@ -418,7 +422,7 @@ function closeLinkPreview() {
 
 async function fetchPreviewScreenshot(url) {
   // Важно: твой бэкенд на FastAPI/Flask принимает роут /api/link-preview, так что оставляем его
-  const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+  const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}&t=${Date.now()}`);
   if (!response.ok) {
     let detail = `Ошибка ${response.status}`;
     try {
