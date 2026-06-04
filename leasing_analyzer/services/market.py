@@ -175,7 +175,7 @@ def collect_analogs(
     # ОСНОВНОЙ ПУТЬ: используем Sonar для поиска аналогов, если он доступен
     if sonar_finder and sonar_finder.is_available():
         logger.info("=" * 70)
-        logger.info("[SONAR] PRIMARY METHOD: Searching for analogs using Perplexity Sonar API")
+        logger.info("[SONAR] ОСНОВНОЙ МЕТОД: Поиск аналогов с использованием Perplexity Sonar API")
         logger.info("=" * 70)
         try:
             sonar_details = sonar_finder.find_analogs(item_name)
@@ -196,7 +196,7 @@ def collect_analogs(
                 logger.warning("[SONAR] Sonar did not return any analogs - will use fallback methods")
         except Exception as e:
             logger.error(f"[SONAR] Error during Sonar search: {e}")
-            logger.info("[SONAR] Falling back to GigaChat/Google methods")
+            logger.info("[SONAR] Переход на резервные методы GigaChat/Google")
             sonar_details = []
     else:
         logger.warning("=" * 70)
@@ -206,7 +206,7 @@ def collect_analogs(
         sonar_details = []
     
     # РЕЗЕРВНЫЙ ПУТЬ: только если Sonar недоступен или завершился ошибкой
-    logger.info("[FALLBACK] Using fallback methods for analog search...")
+    logger.info("[FALLBACK] Использование резервных методов для поиска аналогов...")
     analogs_set = set()
     
     # Собираем аналоги из самих предложений
@@ -218,7 +218,7 @@ def collect_analogs(
     
     # Добавляем предложения от GigaChat
     if len(analogs_set) < 3 and use_ai and analyzer:
-        logger.info("[FALLBACK] Using GigaChat for analog suggestions...")
+        logger.info("[FALLBACK] Использование GigaChat для предложений аналогов...")
         ai_analogs = analyzer.suggest_analogs(item_name)
         for a in ai_analogs:
             cleaned = clean_analog_name(a)
@@ -227,7 +227,7 @@ def collect_analogs(
 
     # Дособираем аналоги через Google
     if len(analogs_set) < 3:
-        logger.info("[FALLBACK] Using Google search for analogs...")
+        logger.info("[FALLBACK] Использование поиска Google для аналогов...")
         fallback_results = search_google(f"{item_name} аналог", 5)
         for r in fallback_results:
             title = r.get("title") or ""
@@ -384,7 +384,7 @@ def analyze_market(
                     result["client_price_verdict"] = client_verdict
                 
                 result["sonar_validation"] = True
-                logger.info("[SONAR] Market prices validated via Sonar")
+                logger.info("[SONAR] Рыночные цены проверены через Sonar")
         except Exception as e:
             logger.warning(f"[SONAR] Error validating market prices: {e}")
             result["sonar_validation"] = False

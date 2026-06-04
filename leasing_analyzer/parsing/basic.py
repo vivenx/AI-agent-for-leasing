@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 from leasing_analyzer.core.models import BasicParseResult
 from leasing_analyzer.core.utils import (
-    digits_to_int,
+    extract_price_candidate,
     _extract_year_from_text,
     _extract_power,
     _extract_mileage,
@@ -35,7 +35,7 @@ def parse_page_basic(html_content: str, model_name: str) -> BasicParseResult:
     if re.search(r"цена\s+по\s+запросу|по\s+договоренности", text, flags=re.IGNORECASE):
         result["price_on_request"] = True
 
-    price = digits_to_int(text)
+    price = extract_price_candidate(text)
     if price:
         result["price"] = price
 

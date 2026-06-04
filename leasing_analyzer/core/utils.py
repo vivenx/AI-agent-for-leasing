@@ -166,35 +166,6 @@ def is_valid_url(url: str) -> bool:
         return False
 
 
-def is_safe_external_url(url: str) -> bool:
-    if not is_valid_url(url):
-        return False
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return False
-
-    hostname = (parsed.hostname or "").strip().lower()
-    if not hostname:
-        return False
-    if hostname in {"localhost", "127.0.0.1", "::1"}:
-        return False
-    if hostname.endswith(".localhost"):
-        return False
-
-    try:
-        import ipaddress
-
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
-            return False
-    except ValueError:
-        pass
-    except Exception:
-        return False
-
-    return True
-
-
 def normalize_url(url: str, base: str = "https://www.avito.ru") -> str:
     if not url:
         return url
@@ -264,12 +235,13 @@ def normalize_url_for_comparison(url: str) -> str:
 def extract_price_candidate(text: str) -> Optional[int]:
     if not text:
         return None
-    currency_pattern = r"(\d[\d\s]*)\s*(₽|руб|rub|\$|€)"
+    money_number = r"\d{1,3}(?:[\s\u00a0]\d{3})+|\d+"
+    currency_pattern = rf"({money_number})\s*(₽|руб|rub|\$|€)"
     for raw_value, _ in re.findall(currency_pattern, text, flags=re.IGNORECASE):
         val = digits_to_int(raw_value)
         if val and val > CONFIG.min_valid_price:
             return val
-    for token in re.findall(r"\b\d[\d\s]*\b", text):
+    for token in re.findall(money_number, text):
         val = digits_to_int(token)
         if not val:
             continue

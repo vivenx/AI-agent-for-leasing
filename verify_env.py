@@ -12,15 +12,15 @@ def verify_env():
     env_path = script_dir / ".env"
 
     print("-" * 50)
-    print("      Project Setup Verification Tool")
+    print("      Утилита проверки настройки проекта")
     print("-" * 50)
 
     if env_path.exists():
-        print(f"[OK] Found .env file at: {env_path}")
+        print(f"[ОК] Найден файл .env по пути: {env_path}")
         load_dotenv(dotenv_path=env_path)
     else:
-        print(f"[!] Warning: .env file not found at: {env_path}")
-        print("    Please copy .env.example to .env and fill in your API keys.")
+        print(f"[!] Предупреждение: файл .env не найден по пути: {env_path}")
+        print("    Пожалуйста, скопируйте .env.example в .env и заполните ключи API.")
         print("-" * 50)
 
     critical_vars = [
@@ -38,32 +38,32 @@ def verify_env():
 
     all_fine = True
 
-    print("\nCritical API Keys:")
+    print("\nКритические ключи API:")
     for var in critical_vars:
         val = os.getenv(var)
         if val:
             masked = val[:5] + "*" * (len(val) - 10) + val[-5:] if len(val) > 10 else "***"
-            print(f"  [OK] {var:20}: {masked}")
+            print(f"  [ОК] {var:20}: {masked}")
         else:
-            print(f"  [MISSING] {var:20}")
+            print(f"  [ОТСУТСТВУЕТ] {var:20}")
             all_fine = False
 
-    print("\nOptional Configuration:")
+    print("\nДополнительные настройки:")
     for var in optional_vars:
         val = os.getenv(var)
-        status = f"Set ({val})" if val else "Not set (using defaults)"
+        status = f"Задано ({val})" if val else "Не задано (используются значения по умолчанию)"
         print(f"  {var:20}: {status}")
 
     print("\n" + "-" * 50)
     if all_fine:
-        print("[SUCCESS] Your environment appears to be correctly configured!")
-        print("   You can now run the app:")
+        print("[УСПЕХ] Ваше окружение настроено правильно!")
+        print("   Теперь вы можете запустить приложение:")
         print("   Web API: python -m uvicorn api.main:app --reload")
         print("   Docs: http://127.0.0.1:8000/docs")
     else:
-        print("[ACTION REQUIRED] Some critical API keys are missing.")
-        print("   Check your .env file and ensure all keys are correctly pasted.")
-        print("   Refer to README.md for instructions on how to obtain these keys.")
+        print("[ТРЕБУЕТСЯ ДЕЙСТВИЕ] Отсутствуют некоторые критические ключи API.")
+        print("   Проверьте файл .env и убедитесь, что все ключи вставлены правильно.")
+        print("   Обратитесь к README.md за инструкциями по получению этих ключей.")
     print("-" * 50)
 
 

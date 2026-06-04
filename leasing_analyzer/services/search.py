@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Optional
 from urllib.parse import quote_plus, unquote, urlparse
 
+from bs4 import BeautifulSoup
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
@@ -33,6 +34,13 @@ from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
     filter_price_outliers,
+)
+from leasing_analyzer.services.user_sources import (
+    STATUS_ERROR,
+    STATUS_INSUFFICIENT_DATA,
+    STATUS_SUCCESS,
+    UserSource,
+    validate_user_source_url,
 )
 
 
@@ -185,7 +193,7 @@ def filter_irrelevant_results(results: list[dict]) -> list[dict]:
         url = result.get("link", "")
         reason = get_irrelevant_page_reason(result)
         if reason:
-            logger.info(f"[PAGE_FILTER] filtered reason={reason} url={url}")
+            logger.info(f"[PAGE_FILTER] отфильтровано reason={reason} url={url}")
             continue
         filtered.append(result)
     return filtered
@@ -208,7 +216,7 @@ def _get_url_status(url: str) -> Optional[int]:
             headers=headers,
         )
         if response.status_code in {403, 405, 406, 429}:
-            logger.debug(f"[URL_CHECK] HEAD returned {response.status_code}, retrying with GET: {url}")
+            logger.debug(f"[URL_CHECK] HEAD вернул {response.status_code}, повторяем с GET: {url}")
             response = _requests_session.get(
                 url,
                 allow_redirects=True,
@@ -216,10 +224,10 @@ def _get_url_status(url: str) -> Optional[int]:
                 headers=headers,
                 stream=True,
             )
-        logger.info(f"[URL_CHECK] status={response.status_code} url={url}")
+        logger.info(f"[URL_CHECK] статус={response.status_code} url={url}")
         return response.status_code
     except requests.RequestException as exc:
-        logger.warning(f"[URL_CHECK] failed url={url} error={exc}")
+        logger.warning(f"[URL_CHECK] ошибка url={url} error={exc}")
         return None
 
 
@@ -243,7 +251,7 @@ def is_url_available(url: str) -> bool:
 
     status_code = _get_url_status(url)
     if not _is_status_browser_reachable(status_code):
-        logger.debug(f"[URL_CHECK] rejected status={status_code} url={url}")
+        logger.debug(f"[URL_CHECK] отклонено статус={status_code} url={url}")
         return False
     return True
 
@@ -255,7 +263,7 @@ def filter_available_results(results: list[dict]) -> list[dict]:
 
     available_with_index: list[tuple[int, dict]] = []
     max_workers = min(max(1, len(results)), CONFIG.max_workers)
-    logger.info(f"[URL_CHECK] batch_start total={len(results)}")
+    logger.info(f"[URL_CHECK] начало обработки пакета, всего={len(results)}")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -271,19 +279,19 @@ def filter_available_results(results: list[dict]) -> list[dict]:
                     enriched_result = dict(result)
                     enriched_result["http_status"] = status_code
                     available_with_index.append((idx, enriched_result))
-                    logger.info(f"[URL_CHECK] accepted status={status_code} url={url}")
+                    logger.info(f"[URL_CHECK] принято статус={status_code} url={url}")
                 else:
                     logger.info(
-                        f"[URL_CHECK] filtered status="
-                        f"{status_code if status_code is not None else 'unreachable'} url={url}"
+                        f"[URL_CHECK] отфильтровано статус="
+                        f"{status_code if status_code is not None else 'недоступен'} url={url}"
                     )
             except Exception as exc:
-                logger.warning(f"[URL_CHECK] crashed url={url} error={exc}")
+                logger.warning(f"[URL_CHECK] сбой url={url} error={exc}")
 
     available_with_index.sort(key=lambda item: item[0])
     available_results = [result for _, result in available_with_index]
     logger.info(
-        f"[URL_CHECK] batch_done reachable={len(available_results)} total={len(results)}"
+        f"[URL_CHECK] пакет обработан, доступно={len(available_results)} всего={len(results)}"
     )
     return available_results
 
@@ -328,13 +336,13 @@ def _search_google_request(query: str, num_results: int) -> list[SearchResult]:
 def search_google_cached(query: str, num_results: int = 10) -> tuple:
     """Кешированный поиск Google через Serper API."""
     if not CONFIG.serper_api_key:
-        logger.warning("SERPER_API_KEY not set")
+        logger.warning("SERPER_API_KEY не задан")
         return tuple()
     try:
         results = _search_google_request(query, num_results)
         return tuple(results)
     except requests.RequestException as exc:
-        logger.error(f"Search error: {exc}")
+        logger.error(f"Ошибка поиска: {exc}")
         return tuple()
 
 
@@ -346,18 +354,18 @@ def search_google(
     """Поиск Google через Serper API с возвратом списка для совместимости."""
     cleaned_query = clean_search_query(query, reject_noisy_markers=reject_noisy_markers)
     if not cleaned_query:
-        logger.warning(f"Skipping invalid search query: {query!r}")
+        logger.warning(f"Пропуск некорректного поискового запроса: {query!r}")
         return []
     if cleaned_query != query:
-        logger.info(f"Cleaned search query: {query!r} -> {cleaned_query!r}")
+        logger.info(f"Очищенный поисковый запрос: {query!r} -> {cleaned_query!r}")
 
     if not CONFIG.serper_api_key:
-        logger.warning("SERPER_API_KEY not set, skipping Google search")
+        logger.warning("SERPER_API_KEY не задан, пропускаем поиск в Google")
         return []
 
     results = search_google_cached(cleaned_query, num_results)
     if not results:
-        logger.debug(f"No Google results for query: {cleaned_query}")
+        logger.debug(f"Нет результатов Google для запроса: {cleaned_query}")
     return list(results)
 
 
@@ -445,10 +453,10 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
             continue
         reason = get_irrelevant_page_reason(result)
         if reason:
-            logger.info(f"[PAGE_FILTER] filtered reason={reason} url={url}")
+            logger.info(f"[PAGE_FILTER] отфильтровано reason={reason} url={url}")
             continue
         if _is_noisy_search_result(result):
-            logger.debug(f"Skipping noisy search result: {url}")
+            logger.debug(f"Пропуск зашумленного результата поиска: {url}")
             continue
         filtered.append(result)
     return filtered
@@ -481,37 +489,145 @@ def _process_single_url(
     title = result.get("title", "")
 
     if not is_valid_url(url):
-        logger.debug(f"[{idx}/{total}] Invalid URL: {url}")
+        logger.debug(f"[{idx}/{total}] Некорректный URL: {url}")
         return []
 
     irrelevant_reason = get_irrelevant_page_reason(result)
     if irrelevant_reason:
-        logger.debug(f"[{idx}/{total}] [PAGE_FILTER] skipped reason={irrelevant_reason} url={url}")
+        logger.debug(f"[{idx}/{total}] [PAGE_FILTER] пропущено reason={irrelevant_reason} url={url}")
         return []
 
     if result.get("http_status") is None and not is_url_available(url):
-        logger.debug(f"[{idx}/{total}] [URL_CHECK] unavailable_before_fetch url={url}")
+        logger.debug(f"[{idx}/{total}] [URL_CHECK] недоступно до загрузки url={url}")
         return []
 
     domain = urlparse(url).netloc.replace("www.", "")
-    logger.debug(f"[{idx}/{total}] Processing {domain} | {url}")
+    logger.debug(f"[{idx}/{total}] Обработка {domain} | {url}")
 
     is_avito = CONFIG.avito_domain in domain
     scroll_times = CONFIG.avito_scroll_times if is_avito else CONFIG.other_scroll_times
     html = fetcher.fetch_page(url, scroll_times=scroll_times, wait=CONFIG.scroll_wait)
 
     if not html:
-        logger.warning(f"[{idx}/{total}] [URL_CHECK] selenium_load_failed url={url}")
+        logger.warning(f"[{idx}/{total}] [URL_CHECK] ошибка загрузки selenium url={url}")
         return []
 
     try:
         offers = parser.parse(html, url, model_name, title)
         if offers:
-            logger.debug(f"[{idx}/{total}] Found {len(offers)} offers from {domain}")
+            logger.debug(f"[{idx}/{total}] Найдено {len(offers)} предложений на {domain}")
         return offers
     except Exception as e:
-        logger.warning(f"[{idx}/{total}] Error parsing {url}: {e}")
+        logger.warning(f"[{idx}/{total}] Ошибка при парсинге {url}: {e}")
         return []
+
+
+def process_user_source_urls(
+    user_sources: list[UserSource],
+    item_name: str,
+    fetcher: SeleniumFetcher,
+    analyzer: Optional[AIAnalyzer],
+    use_ai: bool = True,
+) -> tuple[list[LeasingOffer], list[UserSource]]:
+    """Processes user-provided concrete pages through the existing Selenium parser."""
+    if not user_sources:
+        return [], []
+
+    model_name, requested_year = extract_query_constraints(item_name)
+    avito_parser = AvitoParserStrategy()
+    generic_parser = GenericParserStrategy(analyzer, use_ai)
+
+    all_offers: list[LeasingOffer] = []
+    reports: list[UserSource] = []
+
+    for idx, source in enumerate(user_sources, 1):
+        url = source.get("url", "")
+        report: UserSource = {
+            "id": source.get("id", ""),
+            "url": url,
+            "status": STATUS_ERROR,
+            "reason": "",
+            "error_message": None,
+            "found_data": {},
+            "participated_in_calculation": False,
+        }
+
+        is_valid, validation_reason = validate_user_source_url(url, resolve_host=False)
+        if not is_valid:
+            report["reason"] = validation_reason
+            report["error_message"] = validation_reason
+            reports.append(report)
+            continue
+
+        domain = urlparse(url).netloc.replace("www.", "")
+        result = {
+            "link": url,
+            "title": f"Пользовательский источник: {domain}",
+            "snippet": "",
+            "source_name": domain,
+            "is_user_source": True,
+        }
+        parser = avito_parser if CONFIG.avito_domain in domain else generic_parser
+
+        try:
+            scroll_times = CONFIG.avito_scroll_times if CONFIG.avito_domain in domain else CONFIG.other_scroll_times
+            html = fetcher.fetch_page(url, scroll_times=scroll_times, wait=CONFIG.scroll_wait)
+            if not html:
+                report["reason"] = "Selenium не смог загрузить страницу."
+                report["error_message"] = "Пустой HTML или ошибка загрузки страницы."
+                reports.append(report)
+                continue
+            page_title = BeautifulSoup(html, "html.parser").title
+            title = page_title.get_text(" ", strip=True) if page_title else result["title"]
+            raw_offers = parser.parse(html, url, model_name or item_name, title)
+            if not raw_offers and parser is not generic_parser:
+                raw_offers = generic_parser.parse(html, url, model_name or item_name, title)
+        except Exception as exc:
+            report["reason"] = "Источник не удалось обработать."
+            report["error_message"] = str(exc)[:300]
+            reports.append(report)
+            logger.warning("[USER_SOURCE] processing failed url=%s error=%s", url, exc)
+            continue
+
+        offers = filter_low_quality_offers(raw_offers)
+        offers = filter_offers_by_requested_year(offers, requested_year)
+        offers = deduplicate_offers(offers)
+        offers = deduplicate_offers_by_seller(offers)
+
+        found_data = {
+            "offers_count": len(offers),
+            "prices_count": sum(1 for offer in offers if offer.price is not None),
+            "monthly_payments_count": sum(1 for offer in offers if offer.monthly_payment is not None),
+            "offers": [
+                {
+                    "title": offer.title,
+                    "url": offer.url,
+                    "price": offer.price,
+                    "price_str": offer.price_str,
+                    "monthly_payment": offer.monthly_payment,
+                    "monthly_payment_str": offer.monthly_payment_str,
+                    "year": offer.year,
+                    "model": offer.model,
+                    "source": offer.source,
+                }
+                for offer in offers[:5]
+            ],
+        }
+
+        report["found_data"] = found_data
+        if offers:
+            all_offers.extend(offers)
+            report["status"] = STATUS_SUCCESS
+            report["participated_in_calculation"] = True
+            report["reason"] = "Источник дал данные для расчёта."
+        else:
+            report["status"] = STATUS_INSUFFICIENT_DATA
+            report["participated_in_calculation"] = False
+            report["reason"] = "На странице не удалось найти достаточно данных для расчёта."
+
+        reports.append(report)
+
+    return all_offers, reports
 
 
 def search_and_analyze(
@@ -527,12 +643,12 @@ def search_and_analyze(
     """Основной поисковый пайплайн с параллельной обработкой."""
     cleaned_query = clean_search_query(query)
     if not cleaned_query:
-        logger.warning(f"Skipping invalid search pipeline query: {query!r}")
+        logger.warning(f"Пропуск некорректного запроса пайплайна: {query!r}")
         return []
     query = cleaned_query
 
     logger.info("=" * 70)
-    logger.info(f"Search query: {query}")
+    logger.info(f"Поисковый запрос: {query}")
     logger.info("=" * 70)
 
     if item_name:
@@ -547,19 +663,19 @@ def search_and_analyze(
         mandatory_query_name = f"{model_name} {requested_year}"
 
     mandatory_urls = generate_mandatory_urls(mandatory_query_name or model_name)
-    logger.info(f"Mandatory sources: {len(mandatory_urls)}")
+    logger.info(f"Обязательные источники: {len(mandatory_urls)}")
 
     search_results = search_google(query, num_results * 2)
     if not search_results:
-        logger.warning(f"No Google results for query: {query}")
+        logger.warning(f"Нет результатов Google для запроса: {query}")
         filtered_google = []
     else:
         filtered_google = filter_search_results(search_results, num_results)
 
     all_results = merge_with_mandatory(filtered_google, mandatory_urls)
-    logger.info(f"Total URLs before relevance filter: {len(all_results)}")
+    logger.info(f"Всего URL до фильтра релевантности: {len(all_results)}")
     all_results = filter_irrelevant_results(all_results)
-    logger.info(f"Total URLs after relevance filter: {len(all_results)}")
+    logger.info(f"Всего URL после фильтра релевантности: {len(all_results)}")
 
     if audit_trail is not None:
         audit_trail.record(
@@ -575,11 +691,11 @@ def search_and_analyze(
         )
 
     if not all_results:
-        logger.warning("No URLs to process")
+        logger.warning("Нет URL для обработки")
         return []
 
     all_results = filter_available_results(all_results)
-    logger.info(f"Total URLs after availability check: {len(all_results)}")
+    logger.info(f"Всего URL после проверки доступности: {len(all_results)}")
 
     if audit_trail is not None:
         audit_trail.record(
@@ -593,7 +709,7 @@ def search_and_analyze(
         )
 
     if not all_results:
-        logger.warning("No reachable URLs to process after availability filtering")
+        logger.warning("Нет доступных URL для обработки после фильтрации")
         return []
 
     avito_parser = AvitoParserStrategy()
@@ -622,14 +738,14 @@ def search_and_analyze(
             )
             futures[future] = (idx, url)
 
-        with tqdm(total=len(futures), desc="Processing URLs", unit="url") as pbar:
+        with tqdm(total=len(futures), desc="Обработка URL", unit="url") as pbar:
             for future in as_completed(futures):
                 idx, url = futures[future]
                 try:
                     url_offers = future.result()
                     offers.extend(url_offers)
                 except Exception as e:
-                    logger.error(f"Error processing {url}: {e}")
+                    logger.error(f"Ошибка при обработке {url}: {e}")
                 finally:
                     pbar.update(1)
 
@@ -639,7 +755,7 @@ def search_and_analyze(
     offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
-    logger.info(f"Total offers after processing: {len(offers)}")
+    logger.info(f"Всего предложений после обработки: {len(offers)}")
 
     # Limit results to requested number AFTER all filtering and deduplication
     # to ensure we have diverse offers from different sellers

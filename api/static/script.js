@@ -402,97 +402,6 @@ function cleanupPendingRequest() {
   abortController = null;
 }
 
-
-function openLinkPreview(url, title) {
-  if (!elements.linkPreviewModal) return;
-
-  // 1. Настраиваем заголовки и оригинальную ссылку
-  if (elements.previewTitle) {
-    elements.previewTitle.textContent = title || "Предпросмотр страницы";
-  }
-  if (elements.openOriginalLink) {
-    elements.openOriginalLink.href = url;
-    elements.openOriginalLink.setAttribute("aria-label", `Открыть оригинал ${title || 'страницы'}`);
-  }
-
-  // 2. Сбрасываем состояния: прячем старую картинку/ошибки, включаем новый скелетон
-  elements.previewError?.classList.add("hidden");
-  elements.previewImage?.classList.add("hidden");
-  elements.previewLoading?.classList.remove("hidden");
-
-  // Ставим красивый стартовый текст в индикатор загрузки
-  const loadingTextElem = elements.linkPreviewModal.querySelector(".loading-text");
-  if (loadingTextElem) {
-    loadingTextElem.textContent = "Инициализация безопасного окружения...";
-  }
-
-  // 3. Открываем модальное окно (добавляем класс show)
-  elements.linkPreviewModal.classList.add("show");
-  document.body.style.overflow = "hidden"; // Запрещаем скролл основной страницы под модалкой
-
-  // 4. Запрашиваем скриншот у бэкенда
-  fetchPreviewScreenshot(url)
-    .then((src) => {
-      if (elements.previewImage) {
-        elements.previewImage.src = src;
-        
-        // Ждем, пока браузер физически отрисует картинку из blob-ссылки
-        elements.previewImage.onload = () => {
-          elements.previewLoading?.classList.add("hidden"); // Тушим скелетон
-          elements.previewImage?.classList.remove("hidden"); // Показываем готовый скриншот
-        };
-      }
-    })
-    .catch((error) => {
-      console.error("Ошибка безопасного превью:", error);
-      elements.previewLoading?.classList.add("hidden");
-      if (elements.previewError) {
-        elements.previewError.textContent = "Система защиты: Не удалось выполнить рендеринг страницы. Вы можете открыть оригинал ссылки на свой страх и риск.";
-        elements.previewError.classList.remove("hidden");
-      }
-    });
-}
-
-function closeLinkPreview() {
-  if (!elements.linkPreviewModal) return;
-
-  // 1. Закрываем окно и возвращаем скролл
-  elements.linkPreviewModal.classList.remove("show");
-  document.body.style.overflow = ""; 
-  
-  // 2. ОСВОБОЖДАЕМ ПАМЯТЬ
-  if (elements.previewImage?.src && elements.previewImage.src.startsWith("blob:")) {
-    URL.revokeObjectURL(elements.previewImage.src);
-  }
-  
-  // 3. Очищаем src и скрываем элементы
-  elements.previewImage.src = "";
-  
-  elements.previewError?.classList.add("hidden");
-  elements.previewLoading?.classList.add("hidden");
-  elements.previewImage?.classList.add("hidden");
-}
-
-async function fetchPreviewScreenshot(url) {
-  // Важно: твой бэкенд на FastAPI/Flask принимает роут /api/link-preview, так что оставляем его
-  const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}&t=${Date.now()}`);
-  if (!response.ok) {
-    let detail = `Ошибка ${response.status}`;
-    try {
-      const payload = await response.json();
-      detail = payload.detail || detail;
-    } catch {
-      // ignore
-    }
-    throw new Error(detail);
-  }
-
-  const blob = await response.blob();
-  return URL.createObjectURL(blob);
-}
-
-
-
 function startLoading() {
   elements.submitBtn.disabled = true;
   elements.error.classList.remove("show");
@@ -685,6 +594,64 @@ function renderUserSourcesReport(sources) {
   if (!sources || sources.length === 0) {
     elements.userSourcesReportSection.classList.add("hidden");
     elements.userSourcesReportList.innerHTML = '<div class="empty-note">Пользовательские источники не использовались</div>';
+    return;
+  }
+
+  elements.userSourcesReportSection.classList.remove("hidden");
+  elements.userSourcesReportList.innerHTML = sources
+    .map((source) => {
+      const foundData = source.found_data || {};
+      const offers = Array.isArray(foundData.offers) ? foundData.offers : [];
+      const dataText = [
+        `предложений: ${foundData.offers_count || 0}`,
+        `цен: ${foundData.prices_count || 0}`,
+      ].join(", ");
+      return `
+        <div class="source-card user-source-report-card">
+          <div class="source-card-head">
+            <a class="source-title" href="${escapeAttribute(source.url)}" target="_blank">${escapeHtml(source.url)}</a>
+            <div class="source-price">${escapeHtml(formatUserSourceStatus(source.status))}</div>
+          </div>
+          <div class="source-meta">
+            <span>${escapeHtml(dataText)}</span>
+            <span>${source.participated_in_calculation ? "участвовал в расчёте" : "не участвовал в расчёте"}</span>
+          </div>
+          <div class="user-source-reason">${escapeHtml(source.reason || "Причина не указана.")}</div>
+          ${offers.length ? `<div class="user-source-found">${offers.map((offer) => escapeHtml([offer.title, offer.price_str || formatPrice(offer.price), offer.year].filter(Boolean).join(" · "))).join("<br>")}</div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function syncUserSourceStatuses(reportSources) {
+  if (!Array.isArray(reportSources) || reportSources.length === 0) return;
+  const byId = new Map(reportSources.map((source) => [source.id, source]));
+  userSources = userSources.map((source) => byId.get(source.id) || source);
+  renderUserSourcesManager();
+}
+
+function formatUserSourceStatus(status) {
+  const labels = {
+    pending: "ожидает обработки",
+    success: "успешно",
+    error: "ошибка",
+    insufficient_data: "данных недостаточно",
+  };
+  return labels[status] || status || "ожидает обработки";
+}
+
+function setupYearFilter(sources) {
+  if (!elements.filterYear || !elements.uiFilters) return;
+
+  // Ищем уникальные годы
+  const years = [...new Set(sources.map(s => s.year).filter(Boolean))].sort((a, b) => b - a);
+  
+  // Показываем общий блок фильтров, если есть результаты
+  if (sources.length > 0) {
+    elements.uiFilters.classList.remove("hidden");
+  } else {
+    elements.uiFilters.classList.add("hidden");
     return;
   }
 

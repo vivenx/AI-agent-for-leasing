@@ -16,13 +16,13 @@ logger = get_logger(__name__)
 class MemoryService:
     def __init__(self, repository: MemoryRepository):
         self.repository = repository
-        logger.info("Memory service initialized with database: %s", repository.db_path)
+        logger.info("Сервис памяти инициализирован с базой данных: %s", repository.db_path)
 
     def create_session(self, session_id: str, user_id: Optional[str] = None) -> dict:
         try:
             self.repository.ensure_session(session_id, user_id=user_id)
             session = self.repository.get_session(session_id) or {"session_id": session_id, "user_id": user_id}
-            logger.info("Memory session ensured: session_id=%s user_id=%s", session_id, user_id)
+            logger.info("Сессия памяти обеспечена: session_id=%s user_id=%s", session_id, user_id)
             return session
         except Exception:
             logger.exception("Memory error while creating session: session_id=%s user_id=%s", session_id, user_id)
@@ -143,7 +143,7 @@ class MemoryService:
                 price=market.get("client_price"),
                 metadata_json=json.dumps(metadata, ensure_ascii=False),
             )
-            logger.info("Memory interaction saved: session_id=%s kind=describe item_name=%s", session_id, item_name)
+            logger.info("Взаимодействие с памятью сохранено: session_id=%s kind=describe item_name=%s", session_id, item_name)
 
             self._save_describe_dataset_entries(
                 session_id=session_id,
@@ -155,6 +155,19 @@ class MemoryService:
             self._refresh_session_summary(session_id)
         except Exception:
             logger.exception("Memory error while saving describe interaction: session_id=%s", session_id)
+
+    def get_cached_describe_result(self, session_id: str, user_input: str, client_price: Optional[int] = None) -> Optional[dict]:
+        try:
+            interaction = self.repository.find_exact_interaction(session_id, kind="describe", user_input=user_input, price=client_price)
+            if not interaction:
+                return None
+            
+            metadata_str = interaction.get("metadata_json") or "{}"
+            metadata = json.loads(metadata_str)
+            return metadata.get("full_result")
+        except Exception:
+            logger.exception("Memory error while retrieving cached describe result: session_id=%s", session_id)
+            return None
 
     def save_document_interaction(
         self,
@@ -193,7 +206,7 @@ class MemoryService:
                 price=declared_price,
                 metadata_json=json.dumps(metadata, ensure_ascii=False),
             )
-            logger.info("Memory interaction saved: session_id=%s kind=document file_name=%s", session_id, file_name)
+            logger.info("Взаимодействие с памятью сохранено: session_id=%s kind=document file_name=%s", session_id, file_name)
 
             self._save_document_dataset_entries(
                 session_id=session_id,
@@ -236,7 +249,7 @@ class MemoryService:
                 return False
 
             self.repository.delete_session_memory(session_id)
-            logger.info("Memory cleared: session_id=%s", session_id)
+            logger.info("Память очищена: session_id=%s", session_id)
             return True
         except Exception:
             logger.exception("Memory error while clearing session: session_id=%s", session_id)
@@ -253,7 +266,7 @@ class MemoryService:
             if x.get("response_summary")
         )
         self.repository.upsert_summary(session_id, session_summary[:CONFIG.memory_summary_max_chars])
-        logger.info("Memory session summary updated: session_id=%s", session_id)
+        logger.info("Сводка сессии памяти обновлена: session_id=%s", session_id)
 
     def _save_dataset_entry(
         self,
