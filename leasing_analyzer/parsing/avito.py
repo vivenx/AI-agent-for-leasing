@@ -22,7 +22,8 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
     if not model_name:
         return True
     title_lower = title.lower()
-    keywords = [word for word in re.split(r"\s+", model_name.lower()) if word]
+    noisy_words = {"авито", "avito", "лизинг", "купить", "продажа", "цена", "в"}
+    keywords = [word for word in re.split(r"\s+", model_name.lower()) if word and word not in noisy_words]
     return all(keyword in title_lower for keyword in keywords)
 
 
@@ -140,10 +141,19 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         if not is_relevant_avito_title(title, model_name):
             continue
 
-        href = title_tag.get("href") or ""
-        url = normalize_url(href)
+        href = title_tag.get("href")
+        if not href:
+            # item-title might be an h3 inside an a tag
+            parent_a = title_tag.find_parent("a")
+            if parent_a:
+                href = parent_a.get("href")
+            else:
+                fallback_a = card.select_one("a[href]")
+                href = fallback_a.get("href") if fallback_a else ""
+                
+        url = normalize_url(href or "")
 
-        price_tag = card.select_one('[data-marker="item-price"]') or card.select_one("meta[itemprop='price']")
+        price_tag = card.select_one("meta[itemprop='price']") or card.select_one('[data-marker="item-price"]')
         price_val = None
         if price_tag:
             price_text = price_tag.get("content") or price_tag.get_text(" ", strip=True)
@@ -153,6 +163,9 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         location = normalize_whitespace(location_tag.get_text(" ", strip=True)) if location_tag else None
 
         subtitle = card.get_text(" ", strip=True)
+        if "лизинг" not in subtitle.lower():
+            continue
+
         year = _extract_year_from_text(subtitle)
         power = _extract_power(subtitle)
         mileage = _extract_mileage(subtitle)
@@ -185,6 +198,11 @@ def parse_avito_list_page(html: str, model_name: str) -> list[LeasingOffer]:
         if not name and not href:
             continue
         if not is_relevant_avito_title(name, model_name):
+            continue
+
+        description = str(item.get("description", ""))
+        combined_text = f"{name} {description}".lower()
+        if "лизинг" not in combined_text:
             continue
 
         merged_data = {

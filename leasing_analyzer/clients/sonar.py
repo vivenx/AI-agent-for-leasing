@@ -386,7 +386,7 @@ class SonarAnalogFinder:
                         continue
                     logger.error(f"[SONAR] HTTP 429 сохраняется после {retries + 1} попыток")
                     return None
-                if e.response and e.response.status_code == 500:
+                if e.response is not None and e.response.status_code == 500:
                     # Проверяем, не связана ли ошибка с моделью
                     try:
                         error_data = e.response.json()
@@ -406,6 +406,13 @@ class SonarAnalogFinder:
                         logger.warning(f"[SONAR] Ошибка HTTP 500, повтор через {wait_time}s...")
                         time.sleep(wait_time)
                         continue
+                if e.response is not None and e.response.status_code == 403:
+                    html_snippet = e.response.text[:200].lower()
+                    if "cloudflare" in html_snippet or "just a moment" in html_snippet:
+                        logger.error("[SONAR] 403 Forbidden: Запрос заблокирован Cloudflare (WAF/Bot protection) на стороне провайдера API.")
+                        logger.error(f"[SONAR] Вероятно, датацентровый IP (например, Railway) заблокирован. URL: {self.api_url}")
+                        logger.error("[SONAR] Запрос отклонен, переход на резервные методы.")
+                        return None
                 logger.warning(f"[SONAR] HTTP ошибка: {e}")
                 return None
             except requests.RequestException as e:

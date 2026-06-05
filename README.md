@@ -147,13 +147,13 @@ python verify_env.py
 ### Windows PowerShell
 
 ```powershell
-.\venv\Scripts\python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+.\.venv\Scripts\python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### Git Bash
 
 ```bash
-./venv/Scripts/python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+./.venv/Scripts/python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 После запуска:
@@ -338,8 +338,8 @@ LOG_LEVEL=INFO
 - `document_analysis.py` как отдельный CLI-модуль
 - запуск `uvicorn main:app` из `api/` как основной рекомендуемый способ
 
-Актуальная точка входа для сервера:
+Актуальная точка входа для сервера (при активированном виртуальном окружении):
 
 ```bash
-python -m uvicorn api.main:app --reload
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 ```

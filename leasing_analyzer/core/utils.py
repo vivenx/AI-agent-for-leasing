@@ -264,6 +264,8 @@ def describe_price_difference(price1: Optional[int], price2: Optional[int]) -> s
 def safe_json_loads(content: str) -> Optional[dict]:
     if not content:
         return None
+    # Удаляем блок <think>...</think> который генерируют reasoning модели (например, sonar-reasoning-pro)
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
     cleaned = content.replace("```json", "").replace("```", "").strip()
     start = cleaned.find("{")
     if start == -1:
@@ -335,7 +337,8 @@ def is_relevant_avito_title(title: str, model_name: str) -> bool:
     if not model_name:
         return True
     title_lower = title.lower()
-    keywords = [w for w in re.split(r"\s+", model_name.lower()) if w]
+    noisy_words = {"авито", "avito", "лизинг", "купить", "продажа", "цена", "в"}
+    keywords = [w for w in re.split(r"\s+", model_name.lower()) if w and w not in noisy_words]
     return all(keyword in title_lower for keyword in keywords)
 
 

@@ -29,7 +29,7 @@ from leasing_analyzer.parsing.base import (
     GenericParserStrategy,
     ParserStrategy,
 )
-from leasing_analyzer.parsing.helpers import deduplicate_offers, deduplicate_offers_by_seller
+from leasing_analyzer.parsing.helpers import deduplicate_offers
 from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.market import (
     filter_low_quality_offers,
@@ -47,8 +47,8 @@ from leasing_analyzer.services.user_sources import (
 logger = get_logger(__name__)
 _requests_session = get_http_session()
 _STATUS_CHECK_TIMEOUT = 8
-_BROWSER_REACHABLE_STATUSES = {401, 403, 405, 406, 407, 408, 409, 425, 429}
-_DEAD_STATUSES = {404, 410, 451, 500, 501, 502, 503, 504, 521, 522, 523, 524}
+_BROWSER_REACHABLE_STATUSES = {401, 403, 405, 406, 407, 408, 409, 425, 429, 503}
+_DEAD_STATUSES = {404, 410, 451, 500, 501, 502, 504, 521, 522, 523, 524}
 _WIKIPEDIA_DOMAINS = {"wikipedia.org", "wikimedia.org", "wikiwand.com"}
 _IRRELEVANT_ROUTE_MARKERS = {
     "article": (
@@ -350,14 +350,18 @@ def search_google(
     query: str,
     num_results: int = 10,
     reject_noisy_markers: bool = True,
+    clean: bool = True,
 ) -> list[dict]:
     """Поиск Google через Serper API с возвратом списка для совместимости."""
-    cleaned_query = clean_search_query(query, reject_noisy_markers=reject_noisy_markers)
-    if not cleaned_query:
-        logger.warning(f"Пропуск некорректного поискового запроса: {query!r}")
-        return []
-    if cleaned_query != query:
-        logger.info(f"Очищенный поисковый запрос: {query!r} -> {cleaned_query!r}")
+    if clean:
+        cleaned_query = clean_search_query(query, reject_noisy_markers=reject_noisy_markers)
+        if not cleaned_query:
+            logger.warning(f"Пропуск некорректного поискового запроса: {query!r}")
+            return []
+        if cleaned_query != query:
+            logger.info(f"Очищенный поисковый запрос: {query!r} -> {cleaned_query!r}")
+    else:
+        cleaned_query = query
 
     if not CONFIG.serper_api_key:
         logger.warning("SERPER_API_KEY не задан, пропускаем поиск в Google")
@@ -369,60 +373,75 @@ def search_google(
     return list(results)
 
 
-MANDATORY_SOURCES = [
-    {
-        "name": "alfaleasing.ru",
-        "search_url": "https://alfaleasing.ru/search/?q={query}",
-    },
-    {
-        "name": "sberleasing.ru",
-        "search_url": "https://www.sberleasing.ru/search/?q={query}",
-    },
-    {
-        "name": "avito.ru",
-        "search_url": "https://www.avito.ru/rossiya?q={query}+лизинг",
-    },
+MANDATORY_DOMAINS = [
+    "alfaleasing.ru",
+    "sberleasing.ru",
+    "avito.ru",
+    "auto.ru",
+    "drom.ru",
 ]
 
 
 def generate_mandatory_urls(model_name: str) -> list[dict]:
-    """Генерирует URL для обязательных лизинговых источников."""
+    """Ищет конкретные объявления на обязательных площадках через Google."""
     model_name = clean_search_query(model_name, max_words=8, max_length=80)
     if not model_name:
         return []
 
-    query_encoded = quote_plus(model_name.lower())
     mandatory = []
-    for source in MANDATORY_SOURCES:
-        url = source["search_url"].format(query=query_encoded)
-        mandatory.append(
-            {
-                "link": url,
-                "title": f"{model_name} - {source['name']}",
-                "is_mandatory": True,
-                "source_name": source["name"],
-            }
-        )
+    for domain in MANDATORY_DOMAINS:
+        if domain in {"avito.ru", "auto.ru", "drom.ru"}:
+            query = f"site:{domain} {model_name} купить OR лизинг"
+        else:
+            query = f"site:{domain} {model_name} лизинг"
+            
+        results = search_google(query, num_results=10, reject_noisy_markers=False, clean=False)
+        for r in results:
+            if _is_noisy_search_result(r, model_name):
+                continue
+            r["is_mandatory"] = True
+            r["source_name"] = domain
+            mandatory.append(r)
     return mandatory
 
 
-def _is_noisy_search_result(result: dict) -> bool:
+def _is_noisy_search_result(result: dict, model_name: str = "") -> bool:
     url = result.get("link", "")
     parsed = urlparse(url)
     path = parsed.path.lower()
     title = (result.get("title") or "").lower()
+    domain = parsed.netloc.lower().replace("www.", "")
 
     noisy_path_parts = (
         "/spec/",
         "/specs/",
         "/characteristics/",
-        "/catalog/",
         "/manual",
         "/zapchasti",
         "/parts",
     )
     if any(part in path for part in noisy_path_parts):
         return True
+
+    if "q=" in parsed.query.lower():
+        return True
+
+    # Для классифайдов списочные страницы полезны для парсера списков
+    is_classified = domain in {"avito.ru", "auto.ru", "drom.ru", "spec.drom.ru"}
+
+    path_parts = [p for p in path.strip('/').split('/') if p]
+    if path_parts and not is_classified:
+        last_part = path_parts[-1]
+        model_words = [w.lower() for w in model_name.split() if w]
+        
+        if last_part in ("katalog", "catalog", "products", "freight-transport", "gruzovye", "kommercheskiy-transport"):
+            return True
+            
+        if model_words and last_part in model_words:
+            return True
+            
+        if not re.search(r"\d", path):
+            return True
 
     noisy_title_markers = (
         "характеристик",
@@ -439,10 +458,18 @@ def _is_noisy_search_result(result: dict) -> bool:
     return any(marker in title for marker in noisy_title_markers)
 
 
-def filter_search_results(results: list[dict], max_results: int = 10) -> list[dict]:
+def filter_search_results(results: list[dict], model_name: str, max_results: int = 10) -> list[dict]:
     """Фильтрует поисковые результаты, удаляя заблокированные домены."""
     filtered = []
-    blocked_domains = {"chelindleasing"}
+    blocked_domains = {
+        "chelindleasing",
+        "europlan",
+        "autogpbl",
+        "gazprom",
+        "vtb-leasing",
+        "resoleasing",
+        "baltlease",
+    }
 
     for result in results:
         if len(filtered) >= max_results:
@@ -455,7 +482,7 @@ def filter_search_results(results: list[dict], max_results: int = 10) -> list[di
         if reason:
             logger.info(f"[PAGE_FILTER] отфильтровано reason={reason} url={url}")
             continue
-        if _is_noisy_search_result(result):
+        if _is_noisy_search_result(result, model_name):
             logger.debug(f"Пропуск зашумленного результата поиска: {url}")
             continue
         filtered.append(result)
@@ -483,6 +510,7 @@ def _process_single_url(
     parser: ParserStrategy,
     idx: int,
     total: int,
+    fallback_parser: Optional[ParserStrategy] = None,
 ) -> list[LeasingOffer]:
     """Обрабатывает один URL и возвращает найденные предложения."""
     url = result.get("link", "")
@@ -514,6 +542,11 @@ def _process_single_url(
 
     try:
         offers = parser.parse(html, url, model_name, title)
+        
+        if not offers and fallback_parser:
+            logger.debug(f"[{idx}/{total}] Основной парсер не нашел предложений, пробуем fallback_parser")
+            offers = fallback_parser.parse(html, url, model_name, title)
+
         if offers:
             logger.debug(f"[{idx}/{total}] Найдено {len(offers)} предложений на {domain}")
         return offers
@@ -592,7 +625,6 @@ def process_user_source_urls(
         offers = filter_low_quality_offers(raw_offers)
         offers = filter_offers_by_requested_year(offers, requested_year)
         offers = deduplicate_offers(offers)
-        offers = deduplicate_offers_by_seller(offers)
 
         found_data = {
             "offers_count": len(offers),
@@ -634,7 +666,7 @@ def search_and_analyze(
     query: str,
     fetcher: SeleniumFetcher,
     analyzer: Optional[AIAnalyzer],
-    num_results: int = 5,
+    num_results: int = 15,
     use_ai: bool = True,
     item_name: Optional[str] = None,
     audit_trail: AgentAuditTrail | None = None,
@@ -670,7 +702,7 @@ def search_and_analyze(
         logger.warning(f"Нет результатов Google для запроса: {query}")
         filtered_google = []
     else:
-        filtered_google = filter_search_results(search_results, num_results)
+        filtered_google = filter_search_results(search_results, mandatory_query_name or model_name, num_results)
 
     all_results = merge_with_mandatory(filtered_google, mandatory_urls)
     logger.info(f"Всего URL до фильтра релевантности: {len(all_results)}")
@@ -726,6 +758,7 @@ def search_and_analyze(
             is_avito = CONFIG.avito_domain in domain
 
             parser = avito_parser if is_avito else generic_parser
+            fallback_parser = generic_parser if is_avito else None
 
             future = executor.submit(
                 _process_single_url,
@@ -735,6 +768,7 @@ def search_and_analyze(
                 parser,
                 idx,
                 len(all_results),
+                fallback_parser,
             )
             futures[future] = (idx, url)
 
@@ -752,7 +786,6 @@ def search_and_analyze(
     offers = filter_low_quality_offers(offers)
     offers = deduplicate_offers(offers)
     offers = filter_offers_by_requested_year(offers, requested_year)
-    offers = deduplicate_offers_by_seller(offers)
     offers = filter_price_outliers(offers)
 
     logger.info(f"Всего предложений после обработки: {len(offers)}")
