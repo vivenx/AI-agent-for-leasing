@@ -556,22 +556,25 @@ function renderSources(sources, setupFilters = true) {
     setupYearFilter(sources);
   }
 
-  // Получаем цену клиента из инпута
   const customerPrice = parseFloat(elements.clientPrice?.value) || 0;
 
   elements.sourcesList.innerHTML = sources
     .map((source) => {
       const currentPrice = source.price || 0;
-      let priceClass = "price-normal"; // По умолчанию зеленый
+      let priceClass = "price-normal"; // По умолчанию зеленый [-10% ; 10%]
 
       if (customerPrice > 0 && currentPrice > 0) {
-        const diff = (currentPrice - customerPrice) / customerPrice;
+        // Находим разницу в процентах
+        const percentDiff = ((currentPrice - customerPrice) / customerPrice) * 100;
+        // Берем модуль числа (убираем минус, если цена объявления меньше цены клиента)
+        const absDiff = Math.abs(percentDiff);
 
-        if (diff > 0.25) {
-          priceClass = "price-danger";  // Больше чем на 25% дороже
-        } else if (diff > 0.10) {
-          priceClass = "price-warning"; // Больше чем на 10% дороже
+        if (absDiff > 20) {
+          priceClass = "price-danger";   // Отклонение больше 20% в любую сторону (Красный)
+        } else if (absDiff > 10) {
+          priceClass = "price-warning";  // Отклонение от 10% до 20% в любую сторону (Желтый)
         }
+        // Если absDiff <= 10, то остается "price-normal" (Зеленый)
       }
 
       const title = source.title || "Источник";
