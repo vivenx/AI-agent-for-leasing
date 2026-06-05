@@ -14,11 +14,6 @@ const elements = {
   documentFileLabel: byId("documentFileLabel"),
   filePicker: byId("filePicker"),
   useAI: byId("useAI"),
-  numResults: byId("numResults"),
-  userSourceUrl: byId("userSourceUrl"),
-  addUserSourceBtn: byId("addUserSourceBtn"),
-  useOnlyUserSources: byId("useOnlyUserSources"),
-  userSourcesList: byId("userSourcesList"),
   submitBtn: byId("submitBtn"),
   error: byId("error"),
   placeholder: byId("placeholder"),
@@ -328,7 +323,7 @@ async function submitManual() {
         text: item,
         clientPrice,
         useAI: elements.useAI?.value === "true",
-        numResults,
+        numResults: 15, // Передаем жесткий лимит в 15 результатов
         sessionId: getOrCreateSessionId(),
         useOnlyUserSources: Boolean(elements.useOnlyUserSources?.checked),
       }),
@@ -356,7 +351,7 @@ async function submitDocument() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("useAI", String(elements.useAI?.value === "true"));
-    formData.append("numResults", String(numResults));
+    formData.append("numResults", "15"); // Передаем жесткий лимит в 15 результатов
     formData.append("sessionId", getOrCreateSessionId());
 
     const data = await requestJson("/api/analyze-document", {

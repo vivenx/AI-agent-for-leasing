@@ -814,3 +814,72 @@ input[type=number] {
     border-color: var(--primary);
     background: rgba(59, 130, 246, 0.1);
 }
+
+/* Контейнер для строки чекбокса */
+.checkbox-row {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    margin-top: 10px;
+    font-size: 14px;
+    color: #a0aec0; /* Цвет текста под стать остальным подписям */
+    transition: color 0.2s ease;
+}
+
+.checkbox-row:hover {
+    color: #ffffff; /* Текст становится ярче при наведении */
+}
+
+/* Скрываем дефолтный уродливый чекбокс */
+.checkbox-row input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+/* Создаем наш кастомный квадратный чекбокс */
+.custom-checkbox {
+    position: relative;
+    height: 18px;
+    width: 18px;
+    background-color: #1a202c; /* Темный фон в цвет ваших полей */
+    border: 1px solid #4a5568; /* Серая рамка */
+    border-radius: 4px;
+    margin-right: 10px;
+    flex-shrink: 0;
+    transition: all 0.2s ease-in-out;
+}
+
+/* Эффект при наведении на всю строку */
+.checkbox-row:hover .custom-checkbox {
+    border-color: #3182ce; /* Рамка подсвечивается синим */
+}
+
+/* Стиль чекбокса, когда галочка СТАВИТСЯ */
+.checkbox-row input[type="checkbox"]:checked ~ .custom-checkbox {
+    background-color: #3182ce; /* Заливаем фирменным синим */
+    border-color: #3182ce;
+    box-shadow: 0 0 8px rgba(49, 130, 206, 0.5); /* Легкое неоновое свечение */
+}
+
+/* Рисуем саму галочку (белую птичку) внутри */
+.custom-checkbox::after {
+    content: "";
+    position: absolute;
+    display: none;
+    left: 5px;
+    top: 2px;
+    width: 5px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* Показываем галочку только когда инпут checked */
+.checkbox-row input[type="checkbox"]:checked ~ .custom-checkbox::after {
+    display: block;
+}
