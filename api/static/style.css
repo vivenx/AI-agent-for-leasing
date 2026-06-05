@@ -699,3 +699,118 @@ input[type=number] {
     font-size: 20px;
     line-height: 1;
 }
+
+/* Контейнер для опций из твоего HTML */
+.filters-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 0px;
+}
+
+/* Показываем список, когда на обертке .custom-select-wrapper появляется класс .open */
+.custom-select-wrapper.open .custom-options-box {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* Окно со списком опций */
+.custom-options-box {
+    position: absolute;
+    display: block;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: #0f172a; /* Глубокий темный фон из твоих настроек option */
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.2s ease;
+    
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+
+/* Элемент списка (опция) */
+.custom-option {
+    padding: 8px 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.custom-option:hover {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--text);
+}
+
+/* Подсветка выбранного элемента */
+.custom-option.selected {
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* Стилизация твоей стрелочки .arrow из HTML */
+.custom-select-trigger .arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4px solid var(--text-secondary);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+/* Поворачиваем стрелочку при открытии */
+.custom-select-wrapper.open .arrow {
+    transform: rotate(180deg);
+    border-top-color: var(--text);
+}
+
+/* Базовый контейнер для правильного позиционирования списка */
+.custom-select-wrapper {
+    position: relative;
+    display: inline-block;
+    /* Даем им фиксированную ширину, чтобы они стояли аккуратным блоком в ряд с инпутом цены */
+    width: 160px; 
+    user-select: none;
+}
+
+/* Оформление самой кнопки (до клика) — цвет, рамки и высота как у инпута */
+.custom-select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    height: 36px; /* В точный размер твоего .filter-input (36px вместо 38px) */
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(15, 23, 42, 0.6); /* Точный фон твоего инпута цены */
+    border: 1px solid var(--border); /* Твоя родная рамка */
+    border-radius: 10px; /* Скругление 10px как у твоего инпута */
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    gap: 8px;
+}
+
+/* Легкая подсветка кнопки при наведении */
+.custom-select-trigger:hover {
+    border-color: var(--primary);
+    background: rgba(59, 130, 246, 0.1);
+}

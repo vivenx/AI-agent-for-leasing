@@ -64,7 +64,14 @@ function applyFilters() {
   const filtered = allSources.filter(source => {
     const priceMatch = (source.price || 0) <= maxPrice;
     const yearMatch = selectedYear === "all" || String(source.year) === selectedYear;
-    const locationMatch = selectedLocation === "all" || String(source.location) === selectedLocation;
+    
+    // Переводим строки в нижний регистр для безопасного поиска
+    const cardLocation = String(source.location || "").toLowerCase();
+    const filterLocation = String(selectedLocation || "").toLowerCase();
+    
+    // Проверяем: если выбрано "all" — пропускаем, иначе смотрим, входит ли регион в адрес карточки
+    const locationMatch = selectedLocation === "all" || cardLocation.includes(filterLocation);
+    
     return priceMatch && yearMatch && locationMatch;
   });
 
@@ -641,47 +648,6 @@ function formatUserSourceStatus(status) {
   return labels[status] || status || "ожидает обработки";
 }
 
-function setupYearFilter(sources) {
-  if (!elements.filterYear || !elements.uiFilters) return;
-
-  // Ищем уникальные годы
-  const years = [...new Set(sources.map(s => s.year).filter(Boolean))].sort((a, b) => b - a);
-  
-  // Показываем общий блок фильтров, если есть результаты
-  if (sources.length > 0) {
-    elements.uiFilters.classList.remove("hidden");
-  } else {
-    elements.uiFilters.classList.add("hidden");
-    return;
-  }
-
-  elements.userSourcesReportSection.classList.remove("hidden");
-  elements.userSourcesReportList.innerHTML = sources
-    .map((source) => {
-      const foundData = source.found_data || {};
-      const offers = Array.isArray(foundData.offers) ? foundData.offers : [];
-      const dataText = [
-        `предложений: ${foundData.offers_count || 0}`,
-        `цен: ${foundData.prices_count || 0}`,
-      ].join(", ");
-      return `
-        <div class="source-card user-source-report-card">
-          <div class="source-card-head">
-            <a class="source-title" href="${escapeAttribute(source.url)}" target="_blank">${escapeHtml(source.url)}</a>
-            <div class="source-price">${escapeHtml(formatUserSourceStatus(source.status))}</div>
-          </div>
-          <div class="source-meta">
-            <span>${escapeHtml(dataText)}</span>
-            <span>${source.participated_in_calculation ? "участвовал в расчёте" : "не участвовал в расчёте"}</span>
-          </div>
-          <div class="user-source-reason">${escapeHtml(source.reason || "Причина не указана.")}</div>
-          ${offers.length ? `<div class="user-source-found">${offers.map((offer) => escapeHtml([offer.title, offer.price_str || formatPrice(offer.price), offer.year].filter(Boolean).join(" · "))).join("<br>")}</div>` : ""}
-        </div>
-      `;
-    })
-    .join("");
-}
-
 function syncUserSourceStatuses(reportSources) {
   if (!Array.isArray(reportSources) || reportSources.length === 0) return;
   const byId = new Map(reportSources.map((source) => [source.id, source]));
@@ -699,71 +665,103 @@ function formatUserSourceStatus(status) {
   return labels[status] || status || "ожидает обработки";
 }
 
-function setupYearFilter(sources) {
-  const wrapper = document.getElementById("wrapperYear");
-  const trigger = document.getElementById("triggerYear");
-  const optionsBox = document.getElementById("optionsYear");
-  const hiddenInput = document.getElementById("filterYear");
-  if (!wrapper || !optionsBox || !hiddenInput) return;
+// 1. Универсальная функция инициализации и наполнения кастомного селекта
+function initCustomSelect(wrapperId, triggerId, optionsBoxId, hiddenInputId, dataArray, defaultText) {
+  const wrapper = document.getElementById(wrapperId);
+  const trigger = document.getElementById(triggerId);
+  const optionsBox = document.getElementById(optionsBoxId);
+  const hiddenInput = document.getElementById(hiddenInputId);
+
+  if (!wrapper || !optionsBox || !hiddenInput || !trigger) return;
 
   wrapper.style.display = "block";
+  optionsBox.innerHTML = ""; // Очищаем старые пункты
 
+  // Создаем дефолтный пункт (Все регионы / Все годы)
+  const defaultOpt = document.createElement("div");
+  defaultOpt.className = "custom-option selected";
+  defaultOpt.textContent = defaultText;
+  defaultOpt.dataset.value = "all";
+  optionsBox.appendChild(defaultOpt);
+
+  // Навешиваем клик на дефолтный пункт
+  defaultOpt.addEventListener("click", (e) => handleOptionClick(e, defaultOpt, wrapper, trigger, hiddenInput));
+
+  // Наполняем селект уникальными данными из массива
+  dataArray.forEach(item => {
+    const opt = document.createElement("div");
+    opt.className = "custom-option";
+    opt.textContent = item;
+    opt.dataset.value = item;
+    optionsBox.appendChild(opt);
+
+    // Навешиваем клик на каждый созданный пункт
+    opt.addEventListener("click", (e) => handleOptionClick(e, opt, wrapper, trigger, hiddenInput));
+  });
+}
+
+// 2. Вспомогательная функция обработки клика по пункту списка
+function handleOptionClick(e, option, wrapper, trigger, hiddenInput) {
+  e.stopPropagation();
+
+  const optionsBox = option.parentElement;
+  
+  // Меняем активный класс у элементов списка
+  optionsBox.querySelectorAll(".custom-option").forEach(o => o.classList.remove("selected"));
+  option.classList.add("selected");
+
+  // Меняем текст на триггере и пишем значение в скрытый инпут
+  trigger.querySelector("span").textContent = option.textContent;
+  hiddenInput.value = option.dataset.value;
+
+  // Закрываем рамку и запускаем фильтрацию
+  wrapper.classList.remove("open");
+  applyFilters();
+}
+
+// 3. Функции подготовки данных (вызываются при рендере источников)
+function setupYearFilter(sources) {
   const years = [...new Set(sources.map(s => s.year).filter(Boolean))].sort((a, b) => b - a);
+  initCustomSelect("wrapperYear", "triggerYear", "optionsYear", "filterYear", years, "Все годы");
+}
 
-  let optionsHtml = `<div class="custom-option selected" data-value="all">Все годы</div>`;
+// Функция-помощник, которая оставляет только область/край/город
+function cleanLocationName(locationStr) {
+  if (!locationStr) return "";
   
-  if (sources.length > 0 && years.length > 0) {
-    years.forEach(year => {
-      optionsHtml += `<div class="custom-option" data-value="${year}">${year}</div>`;
-    });
+  let loc = String(locationStr).trim();
+
+  // Обработка городов федерального значения
+  if (loc.includes("Москва")) return "Москва";
+  if (loc.includes("Санкт-Петербург") || loc.includes("Спб") || loc.includes("СПб")) return "Санкт-Петербург";
+  if (loc.includes("Севастополь")) return "Севастополь";
+
+  // Если адрес длинный и разделен запятыми
+  if (loc.includes(",")) {
+    const parts = loc.split(",");
+    // Ищем ту часть, где есть упоминание области, края или республики
+    const regionPart = parts.find(p => 
+      /обл|край|респ|автономный|ао/i.test(p)
+    );
+    // Если нашли — берем её, если нет — забираем самую первую часть адреса
+    loc = regionPart ? regionPart.trim() : parts[0].trim();
   }
-  
-  optionsBox.innerHTML = optionsHtml;
-  initCustomOptions(wrapper, trigger, optionsBox, hiddenInput);
+
+  // Делаем первую букву заглавной для красоты
+  return loc.charAt(0).toUpperCase() + loc.slice(1);
 }
 
 function setupLocationFilter(sources) {
-  const wrapper = document.getElementById("wrapperLocation");
-  const trigger = document.getElementById("triggerLocation");
-  const optionsBox = document.getElementById("optionsLocation");
-  const hiddenInput = document.getElementById("filterLocation");
-  if (!wrapper || !optionsBox || !hiddenInput) return;
+  // Прогоняем каждый адрес через очиститель
+  const cleanedLocations = sources
+    .map(s => cleanLocationName(s.location))
+    .filter(Boolean); // выкидываем пустые строки, если они есть
 
-  wrapper.style.display = "block";
+  // Убираем дубликаты (чтобы не было три раза "Свердловская обл.") и сортируем
+  const uniqueLocations = [...new Set(cleanedLocations)].sort();
 
-  const locations = [...new Set(sources.map(s => s.location).filter(Boolean))].sort();
-
-  let optionsHtml = `<div class="custom-option selected" data-value="all">Все регионы</div>`;
-  
-  if (sources.length > 0 && locations.length > 0) {
-    locations.forEach(loc => {
-      optionsHtml += `<div class="custom-option" data-value="${loc}">${escapeHtml(String(loc))}</div>`;
-    });
-  }
-  
-  optionsBox.innerHTML = optionsHtml;
-  initCustomOptions(wrapper, trigger, optionsBox, hiddenInput);
-}
-
-// Вспомогательная функция для обработки выбора в кастомном списке
-function initCustomOptions(wrapper, trigger, optionsBox, hiddenInput) {
-  optionsBox.querySelectorAll(".custom-option").forEach(option => {
-    option.addEventListener("click", (e) => {
-      e.stopPropagation();
-      
-      // Меняем активный класс у элементов списка
-      optionsBox.querySelectorAll(".custom-option").forEach(o => o.classList.remove("selected"));
-      option.classList.add("selected");
-      
-      // Меняем текст на триггере и пишем значение в скрытый инпут
-      trigger.querySelector("span").textContent = option.textContent;
-      hiddenInput.value = option.dataset.value;
-      
-      // Закрываем рамку и запускаем фильтрацию
-      wrapper.classList.remove("open");
-      applyFilters();
-    });
-  });
+  // Передаем чистый массив в кастомный селект
+  initCustomSelect("wrapperLocation", "triggerLocation", "optionsLocation", "filterLocation", uniqueLocations, "Все регионы");
 }
 
 function normalizeObject(value) {
