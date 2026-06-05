@@ -14,7 +14,6 @@ const elements = {
   documentFileLabel: byId("documentFileLabel"),
   filePicker: byId("filePicker"),
   useAI: byId("useAI"),
-  numResults: byId("numResults"),
   submitBtn: byId("submitBtn"),
   error: byId("error"),
   placeholder: byId("placeholder"),
@@ -150,12 +149,6 @@ function bindForm() {
     event.preventDefault();
     hideError();
 
-    const numResults = Number(elements.numResults?.value || "5");
-    if (!Number.isInteger(numResults) || numResults < 1 || numResults > 10) {
-      showError("Количество результатов должно быть от 1 до 10.");
-      return;
-    }
-
     if (currentMode === "manual") {
       await submitManual();
       return;
@@ -234,7 +227,6 @@ function setMode(mode) {
 async function submitManual() {
   const item = (elements.item?.value || "").trim();
   const rawClientPrice = (elements.clientPrice?.value || "").trim();
-  const numResults = Number(elements.numResults?.value || "5");
   const clientPrice = rawClientPrice ? Number(rawClientPrice) : null;
 
   if (!item || item.length < 3) {
@@ -257,7 +249,7 @@ async function submitManual() {
         text: item,
         clientPrice,
         useAI: elements.useAI?.value === "true",
-        numResults,
+        numResults: 15, // Передаем жесткий лимит в 15 результатов
         sessionId: getOrCreateSessionId(),
       }),
     });
@@ -271,7 +263,6 @@ async function submitManual() {
 
 async function submitDocument() {
   const file = elements.documentFile?.files?.[0];
-  const numResults = Number(elements.numResults?.value || "5");
 
   if (!file) {
     showError("Выберите документ для анализа.");
@@ -284,7 +275,7 @@ async function submitDocument() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("useAI", String(elements.useAI?.value === "true"));
-    formData.append("numResults", String(numResults));
+    formData.append("numResults", "15"); // Передаем жесткий лимит в 15 результатов
     formData.append("sessionId", getOrCreateSessionId());
 
     const data = await requestJson("/api/analyze-document", {

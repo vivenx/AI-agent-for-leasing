@@ -77,7 +77,7 @@ class DescribeRequest(BaseModel):
     text: str = Field(..., min_length=3, max_length=500, description="Описание предмета лизинга")
     clientPrice: Optional[int] = Field(None, ge=0, le=10**12, description="Цена клиента в рублях")
     useAI: Optional[bool] = Field(True, description="Использовать AI для анализа")
-    numResults: Optional[int] = Field(5, ge=1, le=10, description="Количество результатов для поиска")
+    numResults: Optional[int] = Field(15, ge=1, le=15, description="Количество результатов для поиска")
     sessionId: Optional[str] = Field(None, min_length=8, max_length=128, description="ID сессии для памяти")
     userId: Optional[str] = Field(None, min_length=1, max_length=128, description="ID пользователя")
 
@@ -540,14 +540,15 @@ async def analyze_document_endpoint(
     request: Request,
     file: UploadFile = File(...),
     useAI: bool = Form(True),
-    numResults: int = Form(5),
+    numResults: int = Form(15),
     sessionId: Optional[str] = Form(None),
     userId: Optional[str] = Form(None),
 ) -> DocumentAnalyzeResponse:
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не указано имя файла.")
-    if numResults < 1 or numResults > 10:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Количество результатов должно быть от 1 до 10.")
+    
+    if numResults < 1 or numResults > 15:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Количество результатов должно быть от 1 до 15.")
 
     content = await file.read()
     if not content:

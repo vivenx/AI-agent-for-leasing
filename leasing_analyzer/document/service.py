@@ -349,7 +349,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Файл не найден: {file_path}", file=sys.stderr)
         return 1
 
-    if args.num_results < 1 or args.num_results > 10:
+    if args.num_results < 1 or args.num_results > 15:
         print("Параметр --num-results должен быть в диапазоне 1..10", file=sys.stderr)
         return 1
 
