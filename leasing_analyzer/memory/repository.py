@@ -126,6 +126,23 @@ class MemoryRepository:
             """, (session_id, f"%{item_name}%", limit)).fetchall()
         return [dict(row) for row in rows]
 
+    def find_exact_interaction(self, session_id: str, kind: str, user_input: str, price: Optional[int] = None) -> Optional[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT kind, user_input, response_summary, item_name, price, metadata_json, created_at
+                FROM interactions
+                WHERE session_id = ?
+                  AND kind = ?
+                ORDER BY id DESC
+            """, (session_id, kind)).fetchall()
+            
+        target = user_input.strip().lower()
+        for row in rows:
+            if row["user_input"].strip().lower() == target:
+                if price is None or row["price"] == price:
+                    return dict(row)
+        return None
+
     def upsert_summary(self, session_id: str, summary: str) -> None:
         with self._connect() as conn:
             conn.execute("""

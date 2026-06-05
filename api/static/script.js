@@ -35,17 +35,12 @@ const elements = {
   warningsSection: byId("warningsSection"),
   warningsList: byId("warningsList"),
   sourcesList: byId("sourcesList"),
+  userSourcesReportSection: byId("userSourcesReportSection"),
+  userSourcesReportList: byId("userSourcesReportList"),
   uiFilters: byId("ui-filters"),
   filterMaxPrice: byId("filterMaxPrice"),
+  filterLocation: byId("filterLocation"),
   filterYear: byId("filterYear"),
-  linkPreviewModal: byId("linkPreviewModal"),
-  previewLoading: byId("previewLoading"),
-  previewError: byId("previewError"),
-  previewImage: byId("previewImage"),
-  previewTitle: byId("previewTitle"),
-  openOriginalLink: byId("openOriginalLink"),
-  closePreviewBtn: byId("closePreviewBtn"),
-  closePreviewBtnBottom: byId("closePreviewBtnBottom"),
 };
 
 let allSources = []; // Сюда будем сохранять оригинальный список объявлений
@@ -53,19 +48,29 @@ let currentMode = "manual";
 let abortController = null;
 let timeoutId = null;
 let requestTimedOut = false;
+let userSources = [];
 
 
 function applyFilters() {
   const maxPrice = parseFloat(elements.filterMaxPrice?.value) || Infinity;
   const selectedYear = elements.filterYear?.value;
+  const selectedLocation = elements.filterLocation?.value;
 
   const filtered = allSources.filter(source => {
     const priceMatch = (source.price || 0) <= maxPrice;
     const yearMatch = selectedYear === "all" || String(source.year) === selectedYear;
-    return priceMatch && yearMatch;
+    
+    // Переводим строки в нижний регистр для безопасного поиска
+    const cardLocation = String(source.location || "").toLowerCase();
+    const filterLocation = String(selectedLocation || "").toLowerCase();
+    
+    // Проверяем: если выбрано "all" — пропускаем, иначе смотрим, входит ли регион в адрес карточки
+    const locationMatch = selectedLocation === "all" || cardLocation.includes(filterLocation);
+    
+    return priceMatch && yearMatch && locationMatch;
   });
 
-  renderSources(filtered, false); // Перерисовываем список (false - чтобы не сбрасывать фильтры снова)
+  renderSources(filtered, false);
 }
 
 function init() {
@@ -74,7 +79,8 @@ function init() {
   bindFileInput();
   bindForm();
   bindFilters();
-  bindPreviewModal();
+  bindUserSources();
+  loadUserSources();
   setMode("manual");
 }
 
@@ -159,43 +165,103 @@ function bindForm() {
 }
 
 function bindFilters() {
-  // Слушатель на ввод цены в фильтре "Макс. цена" (срабатывает сразу при печати)
   elements.filterMaxPrice?.addEventListener("input", applyFilters);
-  
-  // Слушатель на выбор года
-  elements.filterYear?.addEventListener("change", applyFilters);
-
-  //Слушатель на ввод цены клиента (срабатывает сразу при печати)
   elements.clientPrice?.addEventListener("input", applyFilters);
+
+  // Логика открытия/закрытия кастомных рамок по клику
+  document.querySelectorAll(".custom-select-trigger").forEach(trigger => {
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wrapper = trigger.parentElement;
+      
+      // Закрываем другие открытые выпадашки
+      document.querySelectorAll(".custom-select-wrapper").forEach(w => {
+        if (w !== wrapper) w.classList.remove("open");
+      });
+      
+      wrapper.classList.toggle("open");
+    });
+  });
+
+  // Закрытие выпадашек при клике в любое место экрана
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".custom-select-wrapper").forEach(w => w.classList.remove("open"));
+  });
 }
 
-function bindPreviewModal() {
-  elements.sourcesList?.addEventListener("click", (event) => {
-    const link = event.target.closest(".source-title");
-    if (!link) return;
-
-    const url = link.getAttribute("href");
-    if (!url || url === "#") return;
-
-    event.preventDefault();
-    openLinkPreview(url, link.textContent || "Скриншот страницы");
-  });
-
-  const closeButtons = [elements.closePreviewBtn, elements.closePreviewBtnBottom];
-  closeButtons.forEach((button) => {
-    button?.addEventListener("click", () => closeLinkPreview());
-  });
-
-  elements.linkPreviewModal?.addEventListener("click", (event) => {
-    if (event.target?.getAttribute("data-close-modal") === "true") {
-      closeLinkPreview();
+function bindUserSources() {
+  elements.addUserSourceBtn?.addEventListener("click", addUserSource);
+  elements.userSourceUrl?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addUserSource();
     }
   });
+}
 
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      closeLinkPreview();
-    }
+async function loadUserSources() {
+  try {
+    userSources = await requestJson("/api/user-sources", { method: "GET" });
+    renderUserSourcesManager();
+  } catch (error) {
+    renderUserSourcesManager();
+  }
+}
+
+async function addUserSource() {
+  const url = (elements.userSourceUrl?.value || "").trim();
+  if (!url) {
+    showError("Введите ссылку на конкретную страницу модели или предложения.");
+    return;
+  }
+
+  try {
+    const source = await requestJson("/api/user-sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    userSources = userSources.filter((item) => item.id !== source.id);
+    userSources.push(source);
+    elements.userSourceUrl.value = "";
+    hideError();
+    renderUserSourcesManager();
+  } catch (error) {
+    showError(resolveErrorMessage(error));
+  }
+}
+
+async function deleteUserSource(sourceId) {
+  try {
+    await requestJson(`/api/user-sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
+    userSources = userSources.filter((source) => source.id !== sourceId);
+    renderUserSourcesManager();
+  } catch (error) {
+    showError(resolveErrorMessage(error));
+  }
+}
+
+function renderUserSourcesManager() {
+  if (!elements.userSourcesList) return;
+  if (!userSources.length) {
+    elements.userSourcesList.innerHTML = '<div class="empty-note">Ссылки пока не добавлены</div>';
+    return;
+  }
+
+  elements.userSourcesList.innerHTML = userSources
+    .map((source) => `
+      <div class="user-source-row">
+        <div class="user-source-main">
+          <a href="${escapeAttribute(source.url)}" target="_blank">${escapeHtml(source.url)}</a>
+          <span>${escapeHtml(formatUserSourceStatus(source.status))}</span>
+        </div>
+        <button type="button" class="icon-btn" data-delete-source="${escapeAttribute(source.id)}" title="Удалить">×</button>
+      </div>
+    `)
+    .join("");
+
+  elements.userSourcesList.querySelectorAll("[data-delete-source]").forEach((button) => {
+    button.addEventListener("click", () => deleteUserSource(button.dataset.deleteSource));
   });
 }
 
@@ -239,6 +305,11 @@ async function submitManual() {
     return;
   }
 
+  if (elements.useOnlyUserSources?.checked && userSources.length === 0) {
+    showError("Добавьте хотя бы одну пользовательскую ссылку или отключите режим только пользовательских источников.");
+    return;
+  }
+
   startLoading();
 
   try {
@@ -251,6 +322,7 @@ async function submitManual() {
         useAI: elements.useAI?.value === "true",
         numResults: 15, // Передаем жесткий лимит в 15 результатов
         sessionId: getOrCreateSessionId(),
+        useOnlyUserSources: Boolean(elements.useOnlyUserSources?.checked),
       }),
     });
     renderManualResult(data, clientPrice);
@@ -324,90 +396,6 @@ function cleanupPendingRequest() {
   abortController = null;
 }
 
-function openLinkPreview(url, title) {
-  if (!elements.linkPreviewModal) return;
-
-  // 1. Настраиваем заголовки и оригинальную ссылку
-  if (elements.previewTitle) {
-    elements.previewTitle.textContent = title || "Предпросмотр страницы";
-  }
-  if (elements.openOriginalLink) {
-    elements.openOriginalLink.href = url;
-    elements.openOriginalLink.setAttribute("aria-label", `Открыть оригинал ${title || 'страницы'}`);
-  }
-
-  // 2. Сбрасываем состояния: прячем старую картинку/ошибки, включаем новый скелетон
-  elements.previewError?.classList.add("hidden");
-  elements.previewImage?.classList.add("hidden");
-  elements.previewLoading?.classList.remove("hidden");
-
-  // Ставим красивый стартовый текст в индикатор загрузки
-  const loadingTextElem = elements.linkPreviewModal.querySelector(".loading-text");
-  if (loadingTextElem) {
-    loadingTextElem.textContent = "Инициализация безопасного окружения...";
-  }
-
-  // 3. Открываем модальное окно (добавляем класс show)
-  elements.linkPreviewModal.classList.add("show");
-  document.body.style.overflow = "hidden"; // Запрещаем скролл основной страницы под модалкой
-
-  // 4. Запрашиваем скриншот у бэкенда
-  fetchPreviewScreenshot(url)
-    .then((src) => {
-      if (elements.previewImage) {
-        elements.previewImage.src = src;
-        
-        // Ждем, пока браузер физически отрисует картинку из blob-ссылки
-        elements.previewImage.onload = () => {
-          elements.previewLoading?.classList.add("hidden"); // Тушим скелетон
-          elements.previewImage?.classList.remove("hidden"); // Показываем готовый скриншот
-        };
-      }
-    })
-    .catch((error) => {
-      console.error("Ошибка безопасного превью:", error);
-      elements.previewLoading?.classList.add("hidden");
-      if (elements.previewError) {
-        elements.previewError.textContent = "Система защиты: Не удалось выполнить рендеринг страницы. Вы можете открыть оригинал ссылки на свой страх и риск.";
-        elements.previewError.classList.remove("hidden");
-      }
-    });
-}
-
-function closeLinkPreview() {
-  if (!elements.linkPreviewModal) return;
-
-  // Закрываем окно, очищаем картинку и возвращаем скролл страницы
-  elements.linkPreviewModal.classList.remove("show");
-  document.body.style.overflow = ""; 
-  
-  if (elements.previewImage) {
-    elements.previewImage.src = "";
-  }
-  
-  elements.previewError?.classList.add("hidden");
-  elements.previewLoading?.classList.add("hidden");
-  elements.previewImage?.classList.add("hidden");
-}
-
-async function fetchPreviewScreenshot(url) {
-  // Важно: твой бэкенд на FastAPI/Flask принимает роут /api/link-preview, так что оставляем его
-  const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
-  if (!response.ok) {
-    let detail = `Ошибка ${response.status}`;
-    try {
-      const payload = await response.json();
-      detail = payload.detail || detail;
-    } catch {
-      // ignore
-    }
-    throw new Error(detail);
-  }
-
-  const blob = await response.blob();
-  return URL.createObjectURL(blob);
-}
-
 function startLoading() {
   elements.submitBtn.disabled = true;
   elements.error.classList.remove("show");
@@ -448,6 +436,8 @@ function renderManualResult(data, fallbackClientPrice) {
   `;
 
   renderSources(data.sources || []);
+  renderUserSourcesReport(marketReport.user_sources || []);
+  syncUserSourceStatuses(marketReport.user_sources || []);
 
   elements.specsSection.classList.add("hidden");
   elements.documentSection.classList.add("hidden");
@@ -508,6 +498,8 @@ function renderDocumentResult(data) {
   }
 
   renderSources(data.sources || []);
+  renderUserSourcesReport(marketReport.user_sources || []);
+  syncUserSourceStatuses(marketReport.user_sources || []);
 
   elements.specsSection.classList.remove("hidden");
   elements.documentSection.classList.remove("hidden");
@@ -534,28 +526,42 @@ function renderDetails(container, data, emptyText) {
 }
 
 function renderSources(sources, setupFilters = true) {
+  // Получаем контейнер фильтров
+  const filtersCont = document.getElementById("ui-filters");
+
+  if (!sources || sources.length === 0) {
+    // Если предложений нет (или массив пустой) — принудительно прячем фильтры
+    filtersCont?.classList.add("hidden");
+  } else {
+    // Если предложения пришли — убираем hidden и показываем блок
+    filtersCont?.classList.remove("hidden");
+  }
+
   if (setupFilters) {
     allSources = sources;
+    setupLocationFilter(sources);
     setupYearFilter(sources);
   }
 
-  // Получаем цену клиента из инпута
   const customerPrice = parseFloat(elements.clientPrice?.value) || 0;
 
   elements.sourcesList.innerHTML = sources
     .map((source) => {
       const currentPrice = source.price || 0;
-      let priceClass = "price-normal"; // По умолчанию зеленый
+      let priceClass = "price-normal"; // По умолчанию зеленый [-10% ; 10%]
 
       if (customerPrice > 0 && currentPrice > 0) {
-        const diff = (currentPrice - customerPrice) / customerPrice;
+        // Находим разницу в процентах
+        const percentDiff = ((currentPrice - customerPrice) / customerPrice) * 100;
+        // Берем модуль числа (убираем минус, если цена объявления меньше цены клиента)
+        const absDiff = Math.abs(percentDiff);
 
-        if (diff > 0.25) {
-          priceClass = "price-danger";  // Больше чем на 25% дороже
-        } else if (diff > 0.10) {
-          priceClass = "price-warning"; // Больше чем на 10% дороже
+        if (absDiff > 20) {
+          priceClass = "price-danger";   // Отклонение больше 20% в любую сторону (Красный)
+        } else if (absDiff > 10) {
+          priceClass = "price-warning";  // Отклонение от 10% до 20% в любую сторону (Желтый)
         }
-        // Если diff <= 0.10 или цена ниже клиентской, остается price-normal
+        // Если absDiff <= 10, то остается "price-normal" (Зеленый)
       }
 
       const title = source.title || "Источник";
@@ -566,9 +572,7 @@ function renderSources(sources, setupFilters = true) {
       return `
         <div class="source-card">
           <div class="source-card-head">
-            <a class="source-title source-link-preview" href="${url}" data-tooltip="Открыть безопасный предпросмотр">
-              ${escapeHtml(title)}
-            </a>
+            <a class="source-title" href="${url}" target="_blank">${escapeHtml(title)}</a>
             <div class="source-price ${priceClass}">${escapeHtml(priceStr)}</div>
           </div>
           <div class="source-meta">
@@ -578,35 +582,176 @@ function renderSources(sources, setupFilters = true) {
       `;
     })
     .join("");
+
+  bindPreviewModal(); 
 }
 
-function setupYearFilter(sources) {
-  if (!elements.filterYear || !elements.uiFilters) return;
-
-  // Ищем уникальные годы
-  const years = [...new Set(sources.map(s => s.year).filter(Boolean))].sort((a, b) => b - a);
-  
-  // Показываем общий блок фильтров, если есть результаты
-  if (sources.length > 0) {
-    elements.uiFilters.classList.remove("hidden");
-  } else {
-    elements.uiFilters.classList.add("hidden");
+function renderUserSourcesReport(sources) {
+  if (!elements.userSourcesReportSection || !elements.userSourcesReportList) return;
+  if (!sources || sources.length === 0) {
+    elements.userSourcesReportSection.classList.add("hidden");
+    elements.userSourcesReportList.innerHTML = '<div class="empty-note">Пользовательские источники не использовались</div>';
     return;
   }
 
-  // Логика перестроения:
-  if (years.length > 0) {
-    // Если годы есть - показываем селект, он встанет справа от цены
-    elements.filterYear.style.display = "block"; 
-    elements.filterYear.innerHTML = '<option value="all">Все годы</option>';
-    years.forEach(year => {
-      elements.filterYear.innerHTML += `<option value="${year}">${year}</option>`;
-    });
-  } else {
-    // Если годов нет - УДАЛЯЕМ селект из верстки (display: none)
-    // Благодаря Flexbox в CSS, поле цены само прыгнет на его место (в самый край)
-    elements.filterYear.style.display = "none";
+  elements.userSourcesReportSection.classList.remove("hidden");
+  elements.userSourcesReportList.innerHTML = sources
+    .map((source) => {
+      const foundData = source.found_data || {};
+      const offers = Array.isArray(foundData.offers) ? foundData.offers : [];
+      const dataText = [
+        `предложений: ${foundData.offers_count || 0}`,
+        `цен: ${foundData.prices_count || 0}`,
+      ].join(", ");
+      return `
+        <div class="source-card user-source-report-card">
+          <div class="source-card-head">
+            <a class="source-title" href="${escapeAttribute(source.url)}" target="_blank">${escapeHtml(source.url)}</a>
+            <div class="source-price">${escapeHtml(formatUserSourceStatus(source.status))}</div>
+          </div>
+          <div class="source-meta">
+            <span>${escapeHtml(dataText)}</span>
+            <span>${source.participated_in_calculation ? "участвовал в расчёте" : "не участвовал в расчёте"}</span>
+          </div>
+          <div class="user-source-reason">${escapeHtml(source.reason || "Причина не указана.")}</div>
+          ${offers.length ? `<div class="user-source-found">${offers.map((offer) => escapeHtml([offer.title, offer.price_str || formatPrice(offer.price), offer.year].filter(Boolean).join(" · "))).join("<br>")}</div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function syncUserSourceStatuses(reportSources) {
+  if (!Array.isArray(reportSources) || reportSources.length === 0) return;
+  const byId = new Map(reportSources.map((source) => [source.id, source]));
+  userSources = userSources.map((source) => byId.get(source.id) || source);
+  renderUserSourcesManager();
+}
+
+function formatUserSourceStatus(status) {
+  const labels = {
+    pending: "ожидает обработки",
+    success: "успешно",
+    error: "ошибка",
+    insufficient_data: "данных недостаточно",
+  };
+  return labels[status] || status || "ожидает обработки";
+}
+
+function syncUserSourceStatuses(reportSources) {
+  if (!Array.isArray(reportSources) || reportSources.length === 0) return;
+  const byId = new Map(reportSources.map((source) => [source.id, source]));
+  userSources = userSources.map((source) => byId.get(source.id) || source);
+  renderUserSourcesManager();
+}
+
+function formatUserSourceStatus(status) {
+  const labels = {
+    pending: "ожидает обработки",
+    success: "успешно",
+    error: "ошибка",
+    insufficient_data: "данных недостаточно",
+  };
+  return labels[status] || status || "ожидает обработки";
+}
+
+// 1. Универсальная функция инициализации и наполнения кастомного селекта
+function initCustomSelect(wrapperId, triggerId, optionsBoxId, hiddenInputId, dataArray, defaultText) {
+  const wrapper = document.getElementById(wrapperId);
+  const trigger = document.getElementById(triggerId);
+  const optionsBox = document.getElementById(optionsBoxId);
+  const hiddenInput = document.getElementById(hiddenInputId);
+
+  if (!wrapper || !optionsBox || !hiddenInput || !trigger) return;
+
+  wrapper.style.display = "block";
+  optionsBox.innerHTML = ""; // Очищаем старые пункты
+
+  // Создаем дефолтный пункт (Все регионы / Все годы)
+  const defaultOpt = document.createElement("div");
+  defaultOpt.className = "custom-option selected";
+  defaultOpt.textContent = defaultText;
+  defaultOpt.dataset.value = "all";
+  optionsBox.appendChild(defaultOpt);
+
+  // Навешиваем клик на дефолтный пункт
+  defaultOpt.addEventListener("click", (e) => handleOptionClick(e, defaultOpt, wrapper, trigger, hiddenInput));
+
+  // Наполняем селект уникальными данными из массива
+  dataArray.forEach(item => {
+    const opt = document.createElement("div");
+    opt.className = "custom-option";
+    opt.textContent = item;
+    opt.dataset.value = item;
+    optionsBox.appendChild(opt);
+
+    // Навешиваем клик на каждый созданный пункт
+    opt.addEventListener("click", (e) => handleOptionClick(e, opt, wrapper, trigger, hiddenInput));
+  });
+}
+
+// 2. Вспомогательная функция обработки клика по пункту списка
+function handleOptionClick(e, option, wrapper, trigger, hiddenInput) {
+  e.stopPropagation();
+
+  const optionsBox = option.parentElement;
+  
+  // Меняем активный класс у элементов списка
+  optionsBox.querySelectorAll(".custom-option").forEach(o => o.classList.remove("selected"));
+  option.classList.add("selected");
+
+  // Меняем текст на триггере и пишем значение в скрытый инпут
+  trigger.querySelector("span").textContent = option.textContent;
+  hiddenInput.value = option.dataset.value;
+
+  // Закрываем рамку и запускаем фильтрацию
+  wrapper.classList.remove("open");
+  applyFilters();
+}
+
+// 3. Функции подготовки данных (вызываются при рендере источников)
+function setupYearFilter(sources) {
+  const years = [...new Set(sources.map(s => s.year).filter(Boolean))].sort((a, b) => b - a);
+  initCustomSelect("wrapperYear", "triggerYear", "optionsYear", "filterYear", years, "Все годы");
+}
+
+// Функция-помощник, которая оставляет только область/край/город
+function cleanLocationName(locationStr) {
+  if (!locationStr) return "";
+  
+  let loc = String(locationStr).trim();
+
+  // Обработка городов федерального значения
+  if (loc.includes("Москва")) return "Москва";
+  if (loc.includes("Санкт-Петербург") || loc.includes("Спб") || loc.includes("СПб")) return "Санкт-Петербург";
+  if (loc.includes("Севастополь")) return "Севастополь";
+
+  // Если адрес длинный и разделен запятыми
+  if (loc.includes(",")) {
+    const parts = loc.split(",");
+    // Ищем ту часть, где есть упоминание области, края или республики
+    const regionPart = parts.find(p => 
+      /обл|край|респ|автономный|ао/i.test(p)
+    );
+    // Если нашли — берем её, если нет — забираем самую первую часть адреса
+    loc = regionPart ? regionPart.trim() : parts[0].trim();
   }
+
+  // Делаем первую букву заглавной для красоты
+  return loc.charAt(0).toUpperCase() + loc.slice(1);
+}
+
+function setupLocationFilter(sources) {
+  // Прогоняем каждый адрес через очиститель
+  const cleanedLocations = sources
+    .map(s => cleanLocationName(s.location))
+    .filter(Boolean); // выкидываем пустые строки, если они есть
+
+  // Убираем дубликаты (чтобы не было три раза "Свердловская обл.") и сортируем
+  const uniqueLocations = [...new Set(cleanedLocations)].sort();
+
+  // Передаем чистый массив в кастомный селект
+  initCustomSelect("wrapperLocation", "triggerLocation", "optionsLocation", "filterLocation", uniqueLocations, "Все регионы");
 }
 
 function normalizeObject(value) {

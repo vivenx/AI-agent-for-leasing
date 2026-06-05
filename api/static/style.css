@@ -395,6 +395,8 @@ input::placeholder {
     border-radius: 14px;
     background: var(--glass);
     border: 1px solid var(--border);
+    min-width: 0;
+    overflow: hidden;
 }
 
 .source-card-head {
@@ -402,12 +404,16 @@ input::placeholder {
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
+    min-width: 0;
 }
 
 .source-title {
     color: var(--text);
     text-decoration: none;
     font-weight: 600;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .source-title:hover {
@@ -424,6 +430,7 @@ input::placeholder {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    min-width: 0;
 }
 
 .source-meta span {
@@ -432,6 +439,9 @@ input::placeholder {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
     font-size: 12px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .text-preview {
@@ -444,136 +454,6 @@ input::placeholder {
     line-height: 1.7;
     white-space: pre-wrap;
     word-break: break-word;
-}
-
-.modal {
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 9999;
-    padding: 20px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-}
-
-.modal.show {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.modal-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-}
-
-.modal-panel {
-    position: relative;
-    width: min(100%, 920px);
-    max-width: 920px;
-    max-height: calc(100vh - 80px);
-    background: rgba(15, 23, 42, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 22px;
-    padding: 22px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    z-index: 1;
-}
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-}
-
-.modal-header h3 {
-    font-size: 18px;
-    margin: 0;
-}
-
-.modal-close {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(15, 23, 42, 0.9);
-    color: var(--text);
-    font-size: 22px;
-    cursor: pointer;
-}
-
-.modal-body {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    overflow: hidden;
-}
-
-.preview-loading,
-.preview-error {
-    min-height: 320px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    text-align: center;
-    padding: 20px;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.preview-error {
-    color: var(--danger);
-    font-size: 14px;
-    line-height: 1.6;
-}
-
-.preview-image {
-    width: 100%;
-    max-height: calc(100vh - 260px);
-    object-fit: contain;
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: #020617;
-}
-
-.preview-image.hidden,
-.preview-error.hidden,
-.preview-loading.hidden {
-    display: none;
-}
-
-.modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
-.button {
-    padding: 12px 18px;
-    border-radius: 14px;
-    border: none;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 14px;
-    background: linear-gradient(135deg, var(--primary), var(--accent));
-    color: white;
-}
-
-.button-secondary {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text);
-    border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 @keyframes spin {
@@ -629,12 +509,14 @@ input::placeholder {
 
 .filters-container {
     display: flex;
-    gap: 10px;
-    justify-content: flex-end; /* Прижимает содержимое вправо */
+    align-items: center;
+    gap: 10px; /* Расстояние между инпутом и выпадашками */
+    flex-wrap: wrap; /* Чтобы на мелких экранах не ломалось */
+    margin-top: 0px;
 }
 
 .filters-container.hidden {
-    display: none;
+    display: none !important;
 }
 
 /* Красивые поля ввода для фильтров */
@@ -655,8 +537,16 @@ input::placeholder {
 }
 
 .filter-input {
-    width: 110px;
-    text-align: center;
+    width: 140px !important;
+    height: 36px;            
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: all 0.2s ease;
 }
 
 .filter-select {
@@ -697,13 +587,13 @@ input::placeholder {
     }
     .filters-container {
         width: 100%;
+        flex-wrap: wrap;
     }
-    .filter-input, .filter-select {
-        flex: 1; /* На мобилках растянутся поровну */
+    .filter-input, .custom-select-wrapper {
+        flex: 1;
         width: 100%;
     }
 }
-
 /* Цветовая индикация отклонения от цены клиента */
 .price-normal { color: var(--accent) !important; }  /* Выгодно или в норме (Зеленый) */
 .price-warning { color: var(--warning) !important; } /* Дороже на 10-20% (Желтый) */
@@ -721,100 +611,206 @@ input[type=number] {
     -moz-appearance: textfield;
 }
 
-/* ==========================================================================
-   Стили для безопасного предпросмотра сайтов (Фикс интерфейса)
-   ========================================================================== */
-
-/* Перекрашиваем панель модалки под общую тему */
-#linkPreviewModal .modal-panel {
-    background: var(--surface);
+.secondary-btn {
+    padding: 12px 14px;
+    background: rgba(15, 23, 42, 0.85);
     border: 1px solid var(--border);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 10px 10px -5px rgba(0, 0, 0, 0.7);
-    max-width: 900px; /* Делаем пошире, чтобы скриншот сайта смотрелся солидно */
-    width: 90%;
+    border-radius: 12px;
+    color: var(--text);
+    font-weight: 700;
+    cursor: pointer;
 }
 
-/* Оформление тела модалки */
-#linkPreviewModal .modal-body {
-    background: rgba(10, 15, 30, 0.6);
-    border: 1px solid rgba(59, 130, 246, 0.1);
-    border-radius: 8px;
-    padding: 0;
-    overflow: hidden;
-    min-height: 450px;
+.user-source-add {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.checkbox-row {
     display: flex;
-    align-items: stretch;
-    justify-content: center;
-    position: relative;
+    align-items: center;
+    gap: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.4;
 }
 
-/* Элемент самого скриншота */
-.preview-image {
-    width: 100%;
-    height: auto;
-    max-height: 70vh;
-    object-fit: contain;
-    display: block;
-    animation: fadeIn 0.3s ease-in-out;
+.checkbox-row input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
 }
 
-/* Кастомный красивый спиннер вместо скелетон-лоадера */
-.preview-loading {
+.user-sources-list {
     display: flex;
     flex-direction: column;
+    gap: 8px;
+}
+
+.user-source-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
     align-items: center;
-    justify-content: center;
-    gap: 16px;
-    width: 100%;          
-    flex-grow: 1;
-    padding: 30px;
-    box-sizing: border-box;
+    padding: 10px;
+    border: 1px solid var(--border);
     border-radius: 12px;
+    background: var(--glass);
+    min-width: 0;
 }
 
-/* Возвращаем колесику круглую форму, правильные размеры и вращение */
-#linkPreviewModal .loading-spinner {
-    width: 90px;
-    height: 90px;
-    border: 6px solid rgba(255, 255, 255, 0.1);
-    border-left-color: var(--primary);          /* Твой основной синий цвет */
-    border-radius: 50%;
-    background: transparent !important;         /* Сбрасываем старый перелив */
-    animation: spin 1s linear infinite !important; /* Запускаем обычное кручение */
+.user-source-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
-/* Полностью вычищаем и скрываем старые скелетон-прямоугольники */
-.preview-loading::before,
-.preview-loading::after {
-    display: none !important;
-    content: none !important;
+.user-source-main a {
+    color: var(--text);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
-/* Текст загрузки */
-#linkPreviewModal .loading-text {
+.user-source-main span,
+.user-source-reason,
+.user-source-found {
     color: var(--text-secondary);
-    font-family: monospace;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-size: 0.85rem;
-    text-align: center;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.user-source-found {
     margin-top: 10px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
-/* Стили для ошибок (если бэкенд прислал ошибку или пустой экран) */
-.preview-error {
-    color: var(--danger);
-    background: rgba(190, 18, 60, 0.1);
-    border: 1px solid rgba(190, 18, 60, 0.3);
-    padding: 20px;
-    border-radius: 8px;
-    text-align: center;
-    font-family: inherit;
-    max-width: 80%;
+.icon-btn {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
 }
 
-/* Анимации */
-@keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+/* Контейнер для опций из твоего HTML */
+.filters-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 0px;
+}
+
+/* Показываем список, когда на обертке .custom-select-wrapper появляется класс .open */
+.custom-select-wrapper.open .custom-options-box {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* Окно со списком опций */
+.custom-options-box {
+    position: absolute;
+    display: block;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: #0f172a; /* Глубокий темный фон из твоих настроек option */
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.2s ease;
+    
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+
+/* Элемент списка (опция) */
+.custom-option {
+    padding: 8px 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.custom-option:hover {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--text);
+}
+
+/* Подсветка выбранного элемента */
+.custom-option.selected {
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* Стилизация твоей стрелочки .arrow из HTML */
+.custom-select-trigger .arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4px solid var(--text-secondary);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+/* Поворачиваем стрелочку при открытии */
+.custom-select-wrapper.open .arrow {
+    transform: rotate(180deg);
+    border-top-color: var(--text);
+}
+
+/* Базовый контейнер для правильного позиционирования списка */
+.custom-select-wrapper {
+    position: relative;
+    display: inline-block;
+    /* Даем им фиксированную ширину, чтобы они стояли аккуратным блоком в ряд с инпутом цены */
+    width: 160px; 
+    user-select: none;
+}
+
+/* Оформление самой кнопки (до клика) — цвет, рамки и высота как у инпута */
+.custom-select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    height: 36px; /* В точный размер твоего .filter-input (36px вместо 38px) */
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(15, 23, 42, 0.6); /* Точный фон твоего инпута цены */
+    border: 1px solid var(--border); /* Твоя родная рамка */
+    border-radius: 10px; /* Скругление 10px как у твоего инпута */
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    gap: 8px;
+}
+
+/* Легкая подсветка кнопки при наведении */
+.custom-select-trigger:hover {
+    border-color: var(--primary);
+    background: rgba(59, 130, 246, 0.1);
 }

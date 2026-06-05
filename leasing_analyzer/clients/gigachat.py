@@ -59,7 +59,7 @@ class GigaChatClient:
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as exc:
-            logger.error("GigaChat auth error: %s", exc)
+            logger.error("Ошибка авторизации GigaChat: %s", exc)
             return None
 
         self._access_token = data["access_token"]
@@ -133,12 +133,12 @@ class GigaChatClient:
                     delay = self._parse_retry_after(response) or (base_delay * (2**attempt))
                     if attempt == max_attempts - 1:
                         logger.error(
-                            "GigaChat 429 persisted for %s after %s attempts",
+                            "GigaChat 429 сохраняется для %s после %s попыток",
                             action_name,
                             max_attempts,
                         )
                         return None
-                    logger.warning("GigaChat 429 for %s, retrying in %.1fs", action_name, delay)
+                    logger.warning("GigaChat 429 для %s, повтор через %.1fs", action_name, delay)
                     time.sleep(delay)
                     continue
 
@@ -166,17 +166,19 @@ class GigaChatClient:
                 return parsed
 
             except requests.HTTPError as exc:
-                logger.error("GigaChat HTTP error for %s: %s", action_name, exc)
+                logger.error("HTTP ошибка GigaChat для %s: %s", action_name, exc)
+                if exc.response is not None and exc.response.status_code in {401, 402, 403}:
+                    return None
                 if attempt == max_attempts - 1:
                     raise
 
             except requests.RequestException as exc:
-                logger.error("GigaChat request error for %s: %s", action_name, exc)
+                logger.error("Ошибка запроса GigaChat для %s: %s", action_name, exc)
                 if attempt == max_attempts - 1:
                     raise
 
             except (KeyError, IndexError) as exc:
-                logger.error("GigaChat response parse error for %s: %s", action_name, exc)
+                logger.error("Ошибка парсинга ответа GigaChat для %s: %s", action_name, exc)
                 return None
 
             delay = base_delay * (2**attempt)

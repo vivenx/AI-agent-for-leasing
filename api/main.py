@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -25,18 +25,22 @@ from leasing_analyzer.core.logging import get_logger, setup_logging
 setup_logging()
 
 from leasing_analyzer.document.service import analyze_document
-from leasing_analyzer.services.fetcher import SeleniumFetcher
 from leasing_analyzer.services.pipeline import run_analysis
-from leasing_analyzer.core.utils import is_safe_external_url
+from leasing_analyzer.services.user_sources import (
+    add_user_source,
+    delete_user_source,
+    list_user_sources,
+    update_user_source_results,
+)
 
 logger = get_logger(__name__)
 memory_service = None
 if CONFIG.memory_enabled:
     memory_repository = MemoryRepository(CONFIG.memory_db_path)
     memory_service = MemoryService(memory_repository)
-    logger.info("Memory service enabled: db=%s", CONFIG.memory_db_path)
+    logger.info("Сервис памяти включен: db=%s", CONFIG.memory_db_path)
 else:
-    logger.info("Memory service disabled by configuration")
+    logger.info("Сервис памяти отключен в конфигурации")
 
 
 app = FastAPI(
@@ -80,6 +84,7 @@ class DescribeRequest(BaseModel):
     numResults: Optional[int] = Field(15, ge=1, le=15, description="Количество результатов для поиска")
     sessionId: Optional[str] = Field(None, min_length=8, max_length=128, description="ID сессии для памяти")
     userId: Optional[str] = Field(None, min_length=1, max_length=128, description="ID пользователя")
+    useOnlyUserSources: Optional[bool] = Field(False, description="Использовать только пользовательские источники")
 
     @field_validator("text")
     @classmethod
@@ -110,6 +115,8 @@ class MarketReport(BaseModel):
     fallback_used: bool = False
     fallback_analog: Optional[str] = None
     fallback_analogs: list[str] = Field(default_factory=list)
+    user_sources: list[dict] = Field(default_factory=list)
+    use_only_user_sources: bool = False
     agent_audit: list[dict] = Field(default_factory=list)
     agent_audit_summary: dict = Field(default_factory=dict)
 
@@ -223,6 +230,22 @@ class ClearMemoryResponse(BaseModel):
     session_id: str
 
 
+class UserSourceRequest(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2000)
+
+
+class UserSourceResponse(BaseModel):
+    id: str
+    url: str
+    status: str
+    reason: Optional[str] = None
+    error_message: Optional[str] = None
+    found_data: dict = Field(default_factory=dict)
+    participated_in_calculation: bool = False
+    added_at: Optional[str] = None
+    last_checked_at: Optional[str] = None
+
+
 def select_primary_offer(offers: list[dict], best_offer: Optional[dict]) -> dict:
     candidates: list[dict] = []
     if isinstance(best_offer, dict) and best_offer:
@@ -258,34 +281,25 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/api/link-preview")
-@limiter.limit("20/minute")
-async def preview_link(request: Request, url: str) -> Response:
-    if not is_safe_external_url(url):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Неверный или небезопасный URL.",
-        )
+@app.get("/api/user-sources", response_model=list[UserSourceResponse])
+async def get_user_sources() -> list[UserSourceResponse]:
+    return [UserSourceResponse(**source) for source in list_user_sources()]
 
-    fetcher = SeleniumFetcher()
+
+@app.post("/api/user-sources", response_model=UserSourceResponse)
+async def create_user_source(payload: UserSourceRequest) -> UserSourceResponse:
     try:
-        screenshot = fetcher.capture_screenshot(url)
-        if not screenshot:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Не удалось сформировать превью страницы.",
-            )
-        return Response(content=screenshot, media_type="image/png")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Ошибка создания превью для URL %s: %s", url, exc, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Внутренняя ошибка при формировании превью.",
-        )
-    finally:
-        fetcher.close()
+        source = add_user_source(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return UserSourceResponse(**source)
+
+
+@app.delete("/api/user-sources/{source_id}")
+async def remove_user_source(source_id: str) -> dict:
+    if not delete_user_source(source_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден.")
+    return {"deleted": True}
 
 
 @app.post("/api/session/start", response_model=StartSessionResponse)
@@ -351,6 +365,8 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
     num_results = describe_request.numResults if describe_request.numResults else 5
     session_id = describe_request.sessionId
     user_id = describe_request.userId
+    use_only_user_sources = bool(describe_request.useOnlyUserSources)
+    user_sources = list_user_sources()
 
     memory_context = None
     if memory_service and session_id:
@@ -361,7 +377,7 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
         )
         memory_context = context.to_prompt_block() if context else None
         logger.info(
-            "Memory context prepared for describe: session_id=%s item=%s context_present=%s",
+            "Контекст памяти подготовлен для анализа: session_id=%s item=%s context_present=%s",
             session_id,
             item_str,
             bool(memory_context),
@@ -376,37 +392,51 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
     )
 
     try:
-        try:
-            analysis = run_analysis(
-                item=item_str,
-                client_price=client_price,
-                use_ai=use_ai,
-                num_results=num_results,
-                memory_context=memory_context,
-            )
-        except OverflowError as exc:
-            logger.warning("Overflow в run_analysis: %s", exc)
-            analysis = {
-                "item": item_str,
-                "offers_used": [],
-                "market_report": {
-                    "item": item_str,
-                    "market_range": None,
-                    "median_price": None,
-                    "mean_price": None,
-                    "client_price": client_price,
-                    "client_price_ok": None,
-                    "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
-                },
-            }
+        analysis = None
+        uses_user_sources = use_only_user_sources or bool(user_sources)
+        if memory_service and session_id and not uses_user_sources:
+            cached = memory_service.get_cached_describe_result(session_id, item_str, client_price=client_price)
+            if cached:
+                logger.info("Найден кэшированный результат анализа в памяти для: %s", item_str)
+                analysis = cached
 
-        if memory_service and session_id:
-            memory_service.save_describe_interaction(
-                session_id=session_id,
-                user_input=item_str,
-                result=analysis,
-            )
-            logger.info("Memory saved after describe: session_id=%s item=%s", session_id, item_str)
+        if not analysis:
+            try:
+                analysis = run_analysis(
+                    item=item_str,
+                    client_price=client_price,
+                    use_ai=use_ai,
+                    num_results=num_results,
+                    memory_context=memory_context,
+                    user_sources=user_sources,
+                    use_only_user_sources=use_only_user_sources,
+                )
+            except OverflowError as exc:
+                logger.warning("Overflow в run_analysis: %s", exc)
+                analysis = {
+                    "item": item_str,
+                    "offers_used": [],
+                    "market_report": {
+                        "item": item_str,
+                        "market_range": None,
+                        "median_price": None,
+                        "mean_price": None,
+                        "client_price": client_price,
+                        "client_price_ok": None,
+                        "explanation": "Не удалось посчитать диапазон: данные цен некорректны.",
+                    },
+                }
+
+            market_report_for_update = analysis.get("market_report") or {}
+            update_user_source_results(market_report_for_update.get("user_sources", []))
+
+            if memory_service and session_id and not uses_user_sources:
+                memory_service.save_describe_interaction(
+                    session_id=session_id,
+                    user_input=item_str,
+                    result=analysis,
+                )
+                logger.info("Данные сохранены в память после анализа: session_id=%s item=%s", session_id, item_str)
 
         market_report = analysis.get("market_report") or {}
         offers_used = analysis.get("offers_used") or []
@@ -508,6 +538,8 @@ async def describe(request: Request, describe_request: DescribeRequest) -> Descr
                 fallback_used=market_report.get("fallback_used", False),
                 fallback_analog=market_report.get("fallback_analog"),
                 fallback_analogs=market_report.get("fallback_analogs", []),
+                user_sources=market_report.get("user_sources", []),
+                use_only_user_sources=market_report.get("use_only_user_sources", False),
                 agent_audit=market_report.get("agent_audit", []),
                 agent_audit_summary=market_report.get("agent_audit_summary", {}),
             ),
@@ -574,7 +606,7 @@ async def analyze_document_endpoint(
             )
             memory_context = context.to_prompt_block() if context else None
             logger.info(
-                "Memory context prepared for document analysis: session_id=%s file=%s context_present=%s",
+                "Контекст памяти подготовлен для анализа документа: session_id=%s file=%s context_present=%s",
                 sessionId,
                 file.filename,
                 bool(memory_context),
@@ -593,7 +625,7 @@ async def analyze_document_endpoint(
                 file_name=file.filename,
                 result=result,
             )
-            logger.info("Memory saved after document analysis: session_id=%s file=%s", sessionId, file.filename)
+            logger.info("Данные сохранены в память после анализа документа: session_id=%s file=%s", sessionId, file.filename)
         return DocumentAnalyzeResponse(**result)
     except ValueError as exc:
         logger.warning("Ошибка анализа документа %s: %s", file.filename, exc)

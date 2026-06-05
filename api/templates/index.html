@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Анализатор имущества | Sonar AI</title>
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
-    <link rel="stylesheet" href="/static/style.css?v=10" />
+    <link rel="stylesheet" href="/static/style.css?v=12" />
 </head>
 <body>
 <div class="container">
@@ -63,6 +63,25 @@
                 <input type="hidden" id="useAI" value="true" />
             </div>
 
+            <div class="form-group user-sources-control">
+                <label for="userSourceUrl">Пользовательские источники</label>
+                <div class="user-source-add">
+                    <input
+                        type="text"
+                        id="userSourceUrl"
+                        placeholder="https://example.ru/model/bmw-x5-2024"
+                    />
+                    <button type="button" class="secondary-btn" id="addUserSourceBtn">Добавить</button>
+                </div>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="useOnlyUserSources" />
+                    <span>Использовать только пользовательские источники</span>
+                </label>
+                <div id="userSourcesList" class="user-sources-list">
+                    <div class="empty-note">Ссылки пока не добавлены</div>
+                </div>
+            </div>
+
             <button type="submit" class="submit-btn" id="submitBtn">Начать анализ</button>
             <div id="error" class="error"></div>
         </form>
@@ -109,13 +128,42 @@
                     <h3>Источники</h3>
                     <div id="ui-filters" class="filters-container hidden">
                         <input type="number" id="filterMaxPrice" class="filter-input" placeholder="Макс. цена">
-                        <select id="filterYear" class="filter-select">
-                            <option value="all">Все годы</option>
-                        </select>
+                        <!-- Кастомный фильтр регионов -->
+                        <div class="custom-select-wrapper" id="wrapperLocation">
+                            <div class="custom-select-trigger" id="triggerLocation">
+                                <span>Все регионы</span>
+                                <div class="arrow"></div>
+                            </div>
+                            <div class="custom-options-box" id="optionsLocation">
+                                <!-- Сюда JS сам добавит пункты -->
+                            </div>
+                            <input type="hidden" id="filterLocation" value="all">
+                        </div>
+
+                        <!-- Кастомный фильтр по году -->
+                        <div class="custom-select-wrapper" id="wrapperYear">
+                            <div class="custom-select-trigger" id="triggerYear">
+                                <span>Все годы</span>
+                                <div class="arrow"></div>
+                            </div>
+                            <div class="custom-options-box" id="optionsYear">
+                                <!-- Сюда JS сам добавит пункты -->
+                            </div>
+                            <input type="hidden" id="filterYear" value="all">
+                        </div>
                     </div>
                 </div>
                 <div id="sourcesList" class="sources-list">
                     <div class="empty-note">Источники появятся после анализа</div>
+                </div>
+            </div>
+
+            <div id="userSourcesReportSection" class="details-section hidden">
+                <div class="section-header">
+                    <h3>Пользовательские источники</h3>
+                </div>
+                <div id="userSourcesReportList" class="sources-list">
+                    <div class="empty-note">Пользовательские источники появятся после анализа</div>
                 </div>
             </div>
 
@@ -148,28 +196,6 @@
     </div>
 </div>
 
-<div id="linkPreviewModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
-    <div class="modal-backdrop" data-close-modal="true"></div>
-    <div class="modal-panel">
-        <div class="modal-header">
-            <h3 id="previewTitle">Безопасный просмотр источника</h3>
-            <button type="button" class="modal-close" id="closePreviewBtn" aria-label="Закрыть превью">×</button>
-        </div>
-        <div class="modal-body">
-            <div id="previewLoading" class="preview-loading hidden">
-                <div class="loading-spinner"></div>
-                <div class="loading-text">Инициализация безопасного окружения...</div>
-            </div>
-            <div id="previewError" class="preview-error hidden"></div>
-            <img id="previewImage" class="preview-image hidden" alt="Скриншот сайта" />
-        </div>
-        <div class="modal-actions">
-            <a id="openOriginalLink" class="button button-secondary" href="#" target="_blank" rel="noopener noreferrer">Открыть оригинал на свой риск</a>
-            <button type="button" class="button" id="closePreviewBtnBottom">Закрыть</button>
-        </div>
-    </div>
-</div>
-
-<script src="/static/script.js?v=13"></script>
+<script src="/static/script.js?v=14"></script>
 </body>
 </html>
